@@ -27,6 +27,10 @@ use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tracing::info;
 
+#[cfg(test)]
+#[path = "server_test.rs"]
+mod tests;
+
 /// Application state shared between handlers.
 pub struct AppState {
     pub config: Config,
