@@ -1,0 +1,46 @@
+# metrics-bridge configuration example
+# Copy this file to config.yaml and customize
+
+server:
+  port: 9090
+
+  # Authentication (optional)
+  auth:
+    type: none  # none | basic | bearer
+
+    # For basic auth:
+    # type: basic
+    # username: prometheus
+    # password: ${METRICS_PASSWORD}
+
+    # For bearer auth:
+    # type: bearer
+    # token: ${METRICS_TOKEN}
+
+  # IP whitelist (optional, empty = allow all)
+  allowed_ips: []
+    # - 10.0.0.0/8
+    # - 192.168.0.0/16
+
+  # TLS (optional)
+  # tls:
+  #   cert: /path/to/cert.pem
+  #   key: /path/to/key.pem
+
+# Metric sources
+sources:
+  - name: my-app
+    type: promphp-redis
+    redis_url: ${REDIS_URL}  # e.g., redis://localhost:6379
+    prefix: "PROMETHEUS_"    # promphp default prefix
+    labels:                  # Extra labels added to all metrics
+      app: my-app
+      environment: production
+
+  # Add more sources as needed:
+  # - name: worker
+  #   type: promphp-redis
+  #   redis_url: ${REDIS_WORKER_URL}
+  #   prefix: "PROMETHEUS_"
+  #   labels:
+  #     app: worker

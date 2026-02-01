@@ -1,0 +1,30 @@
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config (may contain secrets)
+config.yaml
+!config.yaml.example
+
+# Environment
+.env
+.env.local
+.envrc
+
+# Logs
+*.log
+
+# Serena (AI assistant memories)
+.serena/
