@@ -230,9 +230,7 @@ async fn ready_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse 
 
     let status_lines: Vec<String> = results
         .iter()
-        .map(|(name, healthy)| {
-            format!("{}: {}", name, if *healthy { "ok" } else { "error" })
-        })
+        .map(|(name, healthy)| format!("{}: {}", name, if *healthy { "ok" } else { "error" }))
         .collect();
 
     let body = status_lines.join("\n");
