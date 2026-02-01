@@ -1,0 +1,57 @@
+[package]
+name = "metrics-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "Fast Prometheus metrics exporter for promphp Redis storage"
+license = "MIT"
+repository = "https://github.com/brilliant-almazov/metrics-bridge-rs"
+keywords = ["prometheus", "metrics", "redis", "exporter", "promphp"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full", "signal"] }
+
+# HTTP server
+axum = { version = "0.8", features = ["macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace"] }
+
+# Redis
+deadpool-redis = "0.18"
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# Metrics
+prometheus = "0.13"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Utils
+base64 = "0.22"
+regex = "1"
+thiserror = "2"
+once_cell = "1"
+ipnet = "2"
+async-trait = "0.1"
+futures = "0.3"
+
+# Memory allocator (Linux only)
+[target.'cfg(all(target_os = "linux", not(target_env = "msvc")))'.dependencies]
+tikv-jemallocator = { version = "0.6", features = ["background_threads"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+opt-level = "z"
+panic = "abort"

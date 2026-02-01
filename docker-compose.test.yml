@@ -1,0 +1,127 @@
+services:
+  # Redis (official)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Dragonfly (Redis-compatible, high performance)
+  dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6379", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Valkey (Redis fork)
+  valkey:
+    image: valkey/valkey:8-alpine
+    ports:
+      - "6381:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # KeyDB (Redis-compatible, multithreaded)
+  keydb:
+    image: eqalpha/keydb:latest
+    ports:
+      - "6382:6379"
+    healthcheck:
+      test: ["CMD", "keydb-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Seed test data for all stores
+  seed:
+    image: redis:7-alpine
+    depends_on:
+      redis:
+        condition: service_healthy
+      dragonfly:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      keydb:
+        condition: service_healthy
+    volumes:
+      - ./tests/e2e/seed.sh:/seed.sh:ro
+    entrypoint: ["/bin/sh", "/seed.sh"]
+
+  # Metrics Bridge instance
+  metrics-bridge:
+    build: .
+    ports:
+      - "9090:9090"
+    environment:
+      - RUST_LOG=metrics_bridge=debug
+      - CONFIG_BASE64
+    configs:
+      - source: test-config
+        target: /config.yaml
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:9090/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # E2E test runner
+  e2e-test:
+    image: curlimages/curl:latest
+    depends_on:
+      metrics-bridge:
+        condition: service_healthy
+    volumes:
+      - ./tests/e2e/run_tests.sh:/run_tests.sh:ro
+    entrypoint: ["/bin/sh", "/run_tests.sh"]
+
+configs:
+  test-config:
+    content: |
+      server:
+        port: 9090
+        auth:
+          type: none
+
+      sources:
+        - name: redis-test
+          type: promphp-redis
+          redis_url: redis://redis:6379
+          prefix: "PROMETHEUS_"
+          labels:
+            store: redis
+
+        - name: dragonfly-test
+          type: promphp-redis
+          redis_url: redis://dragonfly:6379
+          prefix: "PROMETHEUS_"
+          labels:
+            store: dragonfly
+
+        - name: valkey-test
+          type: promphp-redis
+          redis_url: redis://valkey:6379
+          prefix: "PROMETHEUS_"
+          labels:
+            store: valkey
+
+        - name: keydb-test
+          type: promphp-redis
+          redis_url: redis://keydb:6379
+          prefix: "PROMETHEUS_"
+          labels:
+            store: keydb
