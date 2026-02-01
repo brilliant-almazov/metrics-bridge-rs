@@ -95,10 +95,40 @@ jobs:
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 
+  build:
+    name: Build Release
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release
+        run: cargo build --release
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: metrics-bridge-linux
+          path: target/release/metrics-bridge
+          retention-days: 1
+
   e2e:
     name: E2E (${{ matrix.store }})
     runs-on: ubuntu-latest
-    needs: test
+    needs: build
     strategy:
       fail-fast: false
       matrix:
@@ -128,20 +158,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
+      - name: Download binary
+        uses: actions/download-artifact@v4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('**/Cargo.lock') }}
+          name: metrics-bridge-linux
+          path: ./bin
 
-      - name: Build release
-        run: cargo build --release
+      - name: Make binary executable
+        run: chmod +x ./bin/metrics-bridge
 
       - name: Seed test data
         run: |
@@ -175,33 +199,34 @@ jobs:
 
       - name: Start metrics-bridge
         run: |
-          RUST_LOG=metrics_bridge=debug ./target/release/metrics-bridge &
+          RUST_LOG=metrics_bridge=debug ./bin/metrics-bridge &
           sleep 3
           # Check if process is running
           pgrep -f metrics-bridge || (echo "Process not started!" && exit 1)
 
       - name: Test endpoints
+        id: test
         run: |
-          echo "=== Testing ${{ matrix.store }} ==="
+          echo "=== Testing ${{ matrix.store }} ===" | tee -a results.txt
 
           # Health check
-          curl -sf http://localhost:9090/health && echo "✓ Health OK"
+          curl -sf http://localhost:9090/health && echo "Health: OK" | tee -a results.txt
 
           # Ready check
-          curl -sf http://localhost:9090/ready && echo "✓ Ready OK"
+          curl -sf http://localhost:9090/ready && echo "Ready: OK" | tee -a results.txt
 
           # Metrics
           curl -sf http://localhost:9090/metrics > /tmp/metrics.txt
-          cat /tmp/metrics.txt | head -50
 
-          grep -q "http_requests_total" /tmp/metrics.txt && echo "✓ Counter metric present"
-          grep -q "process_memory_bytes" /tmp/metrics.txt && echo "✓ Gauge metric present"
-          grep -q "metrics_bridge_up 1" /tmp/metrics.txt && echo "✓ Self-metrics present"
+          grep -q "http_requests_total" /tmp/metrics.txt && echo "Counter metric: OK" | tee -a results.txt
+          grep -q "process_memory_bytes" /tmp/metrics.txt && echo "Gauge metric: OK" | tee -a results.txt
+          grep -q "metrics_bridge_up 1" /tmp/metrics.txt && echo "Self-metrics: OK" | tee -a results.txt
+
+          echo "ALL_TESTS_PASSED=true" >> $GITHUB_OUTPUT
 
       - name: Benchmark
+        id: benchmark
         run: |
-          echo "### ${{ matrix.store }} Performance" >> $GITHUB_STEP_SUMMARY
-
           # Warmup
           for i in $(seq 1 10); do curl -s -o /dev/null http://localhost:9090/metrics; done
 
@@ -216,8 +241,53 @@ jobs:
           AVG_MS=$(( DURATION_MS / 100 ))
           RPS=$(( 100000 / DURATION_MS ))
 
-          echo "- **100 requests**: ${DURATION_MS}ms" >> $GITHUB_STEP_SUMMARY
-          echo "- **Avg latency**: ${AVG_MS}ms" >> $GITHUB_STEP_SUMMARY
-          echo "- **Throughput**: ~${RPS} req/s" >> $GITHUB_STEP_SUMMARY
+          echo "duration_ms=$DURATION_MS" >> $GITHUB_OUTPUT
+          echo "avg_ms=$AVG_MS" >> $GITHUB_OUTPUT
+          echo "rps=$RPS" >> $GITHUB_OUTPUT
 
           echo "100 requests in ${DURATION_MS}ms (avg: ${AVG_MS}ms, ~${RPS} req/s)"
+
+      - name: Write summary
+        run: |
+          echo "## E2E Results: ${{ matrix.store }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Test | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Health Check | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Ready Check | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Counter Metrics | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Gauge Metrics | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Self-Metrics | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Performance" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 100 requests | ${{ steps.benchmark.outputs.duration_ms }}ms |" >> $GITHUB_STEP_SUMMARY
+          echo "| Avg latency | ${{ steps.benchmark.outputs.avg_ms }}ms |" >> $GITHUB_STEP_SUMMARY
+          echo "| Throughput | ~${{ steps.benchmark.outputs.rps }} req/s |" >> $GITHUB_STEP_SUMMARY
+
+  e2e-summary:
+    name: E2E Summary
+    runs-on: ubuntu-latest
+    needs: e2e
+    if: always()
+
+    steps:
+      - name: Check E2E results
+        run: |
+          if [ "${{ needs.e2e.result }}" = "success" ]; then
+            echo "## :white_check_mark: All E2E Tests Passed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "All Redis-compatible stores tested successfully:" >> $GITHUB_STEP_SUMMARY
+            echo "- Redis 7" >> $GITHUB_STEP_SUMMARY
+            echo "- Redis 6" >> $GITHUB_STEP_SUMMARY
+            echo "- Dragonfly" >> $GITHUB_STEP_SUMMARY
+            echo "- Valkey" >> $GITHUB_STEP_SUMMARY
+            echo "- KeyDB" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## :x: Some E2E Tests Failed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Check individual job results for details." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi

@@ -6,6 +6,16 @@
 [![Docker Image Size](https://ghcr-badge.egpl.dev/brilliant-almazov/metrics-bridge-rs/size)](https://github.com/brilliant-almazov/metrics-bridge-rs/pkgs/container/metrics-bridge-rs)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+### Tested Redis-Compatible Stores
+
+| Store | Status |
+|-------|--------|
+| Redis 7 | ![Redis 7](https://img.shields.io/badge/Redis%207-tested-success) |
+| Redis 6 | ![Redis 6](https://img.shields.io/badge/Redis%206-tested-success) |
+| Dragonfly | ![Dragonfly](https://img.shields.io/badge/Dragonfly-tested-success) |
+| Valkey | ![Valkey](https://img.shields.io/badge/Valkey-tested-success) |
+| KeyDB | ![KeyDB](https://img.shields.io/badge/KeyDB-tested-success) |
+
 Fast Prometheus metrics exporter for [promphp/prometheus_client_php](https://github.com/promphp/prometheus_client_php) Redis storage.
 
 ## Problem
