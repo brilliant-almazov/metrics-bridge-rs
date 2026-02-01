@@ -35,7 +35,8 @@ fn test_parse_counter() {
     let mut hash_data = HashMap::new();
     hash_data.insert(
         "__meta".to_string(),
-        r#"{"name":"test_counter","help":"Test counter","type":"counter","labelNames":["method"]}"#.to_string(),
+        r#"{"name":"test_counter","help":"Test counter","type":"counter","labelNames":["method"]}"#
+            .to_string(),
     );
     // base64 of ["GET"]
     let label_key = STANDARD.encode(r#"["GET"]"#);
@@ -54,7 +55,8 @@ fn test_parse_gauge() {
     let mut hash_data = HashMap::new();
     hash_data.insert(
         "__meta".to_string(),
-        r#"{"name":"memory_bytes","help":"Memory usage","type":"gauge","labelNames":["type"]}"#.to_string(),
+        r#"{"name":"memory_bytes","help":"Memory usage","type":"gauge","labelNames":["type"]}"#
+            .to_string(),
     );
     let label_key = STANDARD.encode(r#"["heap"]"#);
     hash_data.insert(label_key, "1048576".to_string());
@@ -86,11 +88,19 @@ fn test_parse_histogram() {
     assert_eq!(metric.samples.len(), 6);
 
     // Check sum sample
-    let sum_sample = metric.samples.iter().find(|s| s.suffix.as_deref() == Some("_sum")).unwrap();
+    let sum_sample = metric
+        .samples
+        .iter()
+        .find(|s| s.suffix.as_deref() == Some("_sum"))
+        .unwrap();
     assert_eq!(sum_sample.value, 1.5);
 
     // Check count sample
-    let count_sample = metric.samples.iter().find(|s| s.suffix.as_deref() == Some("_count")).unwrap();
+    let count_sample = metric
+        .samples
+        .iter()
+        .find(|s| s.suffix.as_deref() == Some("_count"))
+        .unwrap();
     assert_eq!(count_sample.value, 100.0);
 }
 

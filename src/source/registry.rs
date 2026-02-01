@@ -26,9 +26,7 @@ impl SourceRegistry {
             );
 
             let source: Arc<dyn Source> = match source_config.source_type {
-                SourceType::PromphpRedis => {
-                    Arc::new(PromphpRedisSource::new(source_config)?)
-                }
+                SourceType::PromphpRedis => Arc::new(PromphpRedisSource::new(source_config)?),
             };
 
             sources.push(source);

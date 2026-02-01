@@ -245,9 +245,9 @@ impl Config {
                         .map_err(|e| ConfigError::InvalidValue(format!("Invalid IP network: {e}")))
                 } else {
                     // Parse as single IP and convert to /32 or /128
-                    let addr: IpAddr = ip
-                        .parse()
-                        .map_err(|e| ConfigError::InvalidValue(format!("Invalid IP address: {e}")))?;
+                    let addr: IpAddr = ip.parse().map_err(|e| {
+                        ConfigError::InvalidValue(format!("Invalid IP address: {e}"))
+                    })?;
                     Ok(ipnet::IpNet::from(addr))
                 }
             })

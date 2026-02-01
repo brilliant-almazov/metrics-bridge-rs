@@ -19,13 +19,7 @@ pub fn render_metrics(families: &[MetricFamily]) -> String {
             // Only output HELP and TYPE once per metric name
             if !seen_metrics.contains(full_name) {
                 // HELP line
-                writeln!(
-                    output,
-                    "# HELP {} {}",
-                    full_name,
-                    escape_help(&metric.help)
-                )
-                .unwrap();
+                writeln!(output, "# HELP {} {}", full_name, escape_help(&metric.help)).unwrap();
 
                 // TYPE line
                 writeln!(output, "# TYPE {} {}", full_name, metric.metric_type).unwrap();

@@ -25,10 +25,7 @@ async fn main() {
         )
         .init();
 
-    info!(
-        "metrics-bridge v{} starting...",
-        env!("CARGO_PKG_VERSION")
-    );
+    info!("metrics-bridge v{} starting...", env!("CARGO_PKG_VERSION"));
 
     // Load configuration
     let config = match Config::load() {

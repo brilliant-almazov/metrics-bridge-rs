@@ -2,8 +2,8 @@
 
 use once_cell::sync::Lazy;
 use prometheus::{
-    register_counter_vec, register_gauge, register_gauge_vec, register_histogram_vec,
-    CounterVec, Gauge, GaugeVec, HistogramVec,
+    register_counter_vec, register_gauge, register_gauge_vec, register_histogram_vec, CounterVec,
+    Gauge, GaugeVec, HistogramVec,
 };
 
 /// Total number of scrape requests.
@@ -58,7 +58,8 @@ pub static SOURCE_UP: Lazy<GaugeVec> = Lazy::new(|| {
 
 /// Exporter up status (always 1 when running).
 pub static UP: Lazy<Gauge> = Lazy::new(|| {
-    register_gauge!("metrics_bridge_up", "Exporter is running (always 1)").expect("Failed to register up")
+    register_gauge!("metrics_bridge_up", "Exporter is running (always 1)")
+        .expect("Failed to register up")
 });
 
 /// Build information.

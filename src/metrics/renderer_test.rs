@@ -34,7 +34,11 @@ fn test_format_value_large_integer() {
 
 #[test]
 fn test_render_simple_counter() {
-    let mut metric = Metric::new("http_requests_total", "Total HTTP requests", MetricType::Counter);
+    let mut metric = Metric::new(
+        "http_requests_total",
+        "Total HTTP requests",
+        MetricType::Counter,
+    );
     let mut labels = HashMap::new();
     labels.insert("method".to_string(), "GET".to_string());
     metric.add_sample(Sample::new(labels, 100.0));
