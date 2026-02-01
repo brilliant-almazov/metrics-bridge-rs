@@ -87,6 +87,7 @@ services:
         condition: service_healthy
     volumes:
       - ./tests/e2e/run_tests.sh:/run_tests.sh:ro
+      - ./tests/e2e/benchmark.sh:/benchmark.sh:ro
     entrypoint: ["/bin/sh", "/run_tests.sh"]
 
 configs:

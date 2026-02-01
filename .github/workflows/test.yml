@@ -96,14 +96,112 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
   e2e:
-    name: E2E Tests
+    name: E2E (${{ matrix.store }})
     runs-on: ubuntu-latest
     needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        store: [redis, dragonfly, valkey, keydb]
+        include:
+          - store: redis
+            image: redis:7-alpine
+            port: 6379
+          - store: dragonfly
+            image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
+            port: 6379
+          - store: valkey
+            image: valkey/valkey:8-alpine
+            port: 6379
+          - store: keydb
+            image: eqalpha/keydb:latest
+            port: 6379
+
+    services:
+      store:
+        image: ${{ matrix.image }}
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping || valkey-cli ping || keydb-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run E2E tests with Docker Compose
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release
+        run: cargo build --release
+
+      - name: Seed test data (${{ matrix.store }})
         run: |
-          docker compose -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from e2e-test
-        timeout-minutes: 10
+          sudo apt-get update && sudo apt-get install -y redis-tools
+          chmod +x tests/e2e/seed.sh
+          # Seed with modified script for single store
+          redis-cli -h localhost SADD "PROMETHEUS_:COUNTER_METRIC_KEYS" "http_requests_total"
+          redis-cli -h localhost HSET "PROMETHEUS_:counter:http_requests_total" \
+            "__meta" '{"name":"http_requests_total","help":"Total HTTP requests","type":"counter","labelNames":["method","status"]}' \
+            "$(echo -n '["GET","200"]' | base64)" "1500"
+
+      - name: Start metrics-bridge
+        run: |
+          cat > /tmp/config.yaml << 'EOF'
+          server:
+            port: 9090
+            auth:
+              type: none
+          sources:
+            - name: ${{ matrix.store }}-test
+              type: promphp-redis
+              redis_url: redis://localhost:6379
+              prefix: "PROMETHEUS_"
+              labels:
+                store: ${{ matrix.store }}
+          EOF
+          ./target/release/metrics-bridge &
+          sleep 2
+
+      - name: Test endpoints
+        run: |
+          # Health check
+          curl -sf http://localhost:9090/health
+          echo "✓ Health OK"
+
+          # Ready check
+          curl -sf http://localhost:9090/ready
+          echo "✓ Ready OK"
+
+          # Metrics
+          METRICS=$(curl -sf http://localhost:9090/metrics)
+          echo "$METRICS" | grep -q "http_requests_total"
+          echo "✓ Metrics contain http_requests_total"
+          echo "$METRICS" | grep -q 'store="${{ matrix.store }}"'
+          echo "✓ Metrics have correct store label"
+
+      - name: Benchmark (${{ matrix.store }})
+        run: |
+          echo "=== Benchmark on ${{ matrix.store }} ==="
+          START=$(date +%s%N)
+          for i in $(seq 1 100); do
+            curl -s -o /dev/null http://localhost:9090/metrics
+          done
+          END=$(date +%s%N)
+          DURATION_MS=$(( (END - START) / 1000000 ))
+          AVG_MS=$(( DURATION_MS / 100 ))
+          echo "100 requests in ${DURATION_MS}ms (avg: ${AVG_MS}ms)"
+          echo "### ${{ matrix.store }} Performance" >> $GITHUB_STEP_SUMMARY
+          echo "- 100 requests: ${DURATION_MS}ms" >> $GITHUB_STEP_SUMMARY
+          echo "- Average latency: ${AVG_MS}ms" >> $GITHUB_STEP_SUMMARY
