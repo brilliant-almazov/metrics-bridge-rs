@@ -2,11 +2,21 @@
 name = "metrics-bridge"
 version = "0.1.2"
 edition = "2021"
-description = "Fast Prometheus metrics exporter for promphp Redis storage"
+description = "High-performance Prometheus metrics exporter for promphp/prometheus_client_php Redis storage. Sub-millisecond latency, 12500+ RPS with caching. Supports Redis, Dragonfly, Valkey, KeyDB. Features: multiple sources aggregation, per-source caching, extra labels, auth (Basic/Bearer/IP whitelist), TLS, GZIP compression. Tiny <10MB Docker image."
 license = "MIT"
 repository = "https://github.com/brilliant-almazov/metrics-bridge-rs"
-keywords = ["prometheus", "metrics", "redis", "exporter", "promphp"]
-categories = ["command-line-utilities", "development-tools"]
+homepage = "https://github.com/brilliant-almazov/metrics-bridge-rs"
+documentation = "https://github.com/brilliant-almazov/metrics-bridge-rs#readme"
+keywords = ["prometheus", "metrics", "redis", "exporter", "monitoring"]
+categories = ["command-line-utilities", "development-tools", "web-programming"]
+exclude = [
+    "docs/*",
+    ".github/*",
+    "docker-compose*.yml",
+    "cloudbuild.yaml",
+    "*.md",
+    "!README.md",
+]
 
 [dependencies]
 # Async runtime
