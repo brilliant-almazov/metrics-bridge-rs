@@ -140,6 +140,9 @@ pub struct SourceConfig {
     pub prefix: String,
     #[serde(default)]
     pub labels: HashMap<String, String>,
+    /// Cache TTL in seconds for this source. 0 = no caching (default).
+    #[serde(default)]
+    pub cache_ttl_seconds: u64,
 }
 
 fn default_prefix() -> String {
