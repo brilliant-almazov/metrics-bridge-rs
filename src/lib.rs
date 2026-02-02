@@ -3,6 +3,7 @@
 //! Reads metrics written by PHP's promphp/prometheus_client_php from Redis
 //! and exposes them in Prometheus format with sub-millisecond latency.
 
+pub mod cache;
 pub mod config;
 pub mod metrics;
 pub mod self_metrics;

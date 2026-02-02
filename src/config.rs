@@ -4,7 +4,6 @@
 //! Supports CONFIG_BASE64 env var or config.yaml file.
 
 use base64::{engine::general_purpose::STANDARD, Engine};
-use regex::Regex;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::env;
@@ -90,9 +89,9 @@ pub struct ServerConfig {
     pub allowed_ips: Vec<String>,
     #[serde(default)]
     pub tls: TlsConfig,
-    /// Optional cache TTL in seconds. If set, metrics are cached for this duration.
+    /// Cache TTL in seconds. 0 = no caching (default).
     #[serde(default)]
-    pub cache_ttl_seconds: Option<u64>,
+    pub cache_ttl_seconds: u64,
     /// Optional GZIP compression level (1-9). If set, responses are compressed.
     #[serde(default)]
     pub gzip_level: Option<u32>,
@@ -109,7 +108,7 @@ impl Default for ServerConfig {
             auth: AuthConfig::default(),
             allowed_ips: Vec::new(),
             tls: TlsConfig::default(),
-            cache_ttl_seconds: None,
+            cache_ttl_seconds: 0,
             gzip_level: None,
         }
     }
@@ -273,19 +272,20 @@ impl Config {
 
 /// Expands environment variables in the format ${VAR} in the input string.
 fn expand_env_vars(content: &str) -> Result<String, ConfigError> {
-    let re = Regex::new(r"\$\{([^}]+)\}").unwrap();
-    let mut result = content.to_string();
+    let mut result = String::with_capacity(content.len());
+    let mut chars = content.chars().peekable();
     let mut errors = Vec::new();
 
-    for cap in re.captures_iter(content) {
-        let var_name = &cap[1];
-        match env::var(var_name) {
-            Ok(value) => {
-                result = result.replace(&cap[0], &value);
+    while let Some(c) = chars.next() {
+        if c == '$' && chars.peek() == Some(&'{') {
+            chars.next(); // consume '{'
+            let var_name: String = chars.by_ref().take_while(|&c| c != '}').collect();
+            match env::var(&var_name) {
+                Ok(value) => result.push_str(&value),
+                Err(_) => errors.push(var_name),
             }
-            Err(_) => {
-                errors.push(var_name.to_string());
-            }
+        } else {
+            result.push(c);
         }
     }
 

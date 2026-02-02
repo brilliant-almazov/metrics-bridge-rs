@@ -18,7 +18,7 @@ fn test_check_basic_auth_valid() {
             },
             allowed_ips: vec![],
             tls: TlsConfig::default(),
-            cache_ttl_seconds: None,
+            cache_ttl_seconds: 0,
             gzip_level: None,
         },
         sources: vec![],
@@ -48,7 +48,7 @@ fn test_check_basic_auth_invalid() {
             },
             allowed_ips: vec![],
             tls: TlsConfig::default(),
-            cache_ttl_seconds: None,
+            cache_ttl_seconds: 0,
             gzip_level: None,
         },
         sources: vec![],
@@ -91,7 +91,7 @@ fn test_check_bearer_auth_valid() {
             },
             allowed_ips: vec![],
             tls: TlsConfig::default(),
-            cache_ttl_seconds: None,
+            cache_ttl_seconds: 0,
             gzip_level: None,
         },
         sources: vec![],
@@ -119,7 +119,7 @@ fn test_check_bearer_auth_invalid() {
             },
             allowed_ips: vec![],
             tls: TlsConfig::default(),
-            cache_ttl_seconds: None,
+            cache_ttl_seconds: 0,
             gzip_level: None,
         },
         sources: vec![],
@@ -147,12 +147,4 @@ fn test_check_bearer_auth_no_header() {
     assert!(!check_bearer_auth(&request, &config));
 }
 
-#[test]
-fn test_cached_metrics() {
-    let cached = CachedMetrics {
-        data: "test data".to_string(),
-        timestamp: std::time::Instant::now(),
-    };
-
-    assert_eq!(cached.data, "test data");
-}
+// Cache tests are in cache.rs
