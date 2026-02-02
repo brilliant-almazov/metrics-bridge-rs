@@ -6,6 +6,13 @@
 [![Docker Image Size](https://ghcr-badge.egpl.dev/brilliant-almazov/metrics-bridge-rs/size)](https://github.com/brilliant-almazov/metrics-bridge-rs/pkgs/container/metrics-bridge-rs)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+### Performance (auto-updated from CI)
+
+| Metric | With Cache | Without Cache |
+|--------|------------|---------------|
+| RPS | ![RPS Cached](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/brilliant-almazov/0ef94616a74c387a9626f71245f9533c/raw/rps-cached.json) | ![RPS Uncached](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/brilliant-almazov/0ef94616a74c387a9626f71245f9533c/raw/rps-uncached.json) |
+| Latency | ![Latency Cached](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/brilliant-almazov/0ef94616a74c387a9626f71245f9533c/raw/latency-cached.json) | ![Latency Uncached](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/brilliant-almazov/0ef94616a74c387a9626f71245f9533c/raw/latency-uncached.json) |
+
 ### Tested Redis-Compatible Stores
 
 | Store | Status |
