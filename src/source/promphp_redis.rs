@@ -36,13 +36,16 @@ impl PromphpRedisSource {
         })
     }
 
-    /// Gets all metric keys for a given type (COUNTER, GAUGE, HISTOGRAM).
+    /// Gets all metric keys for a given type (counter, gauge, histogram).
+    /// Returns the full hash key names directly from the SET.
     async fn get_metric_keys(
         &self,
         conn: &mut deadpool_redis::Connection,
         metric_type: &str,
     ) -> SourceResult<Vec<String>> {
-        let set_key = format!("{}:{}_METRIC_KEYS", self.prefix, metric_type);
+        // promphp stores keys as: {prefix}{type}_METRIC_KEYS
+        // e.g., PROMETHEUS_counter_METRIC_KEYS
+        let set_key = format!("{}{}_METRIC_KEYS", self.prefix, metric_type);
         let keys: Vec<String> = conn
             .smembers(&set_key)
             .await
@@ -80,19 +83,18 @@ impl Source for PromphpRedisSource {
         let mut family = MetricFamily::new(&self.name).with_labels(self.extra_labels.clone());
 
         // Collect all metric types
-        for metric_type in &["COUNTER", "GAUGE", "HISTOGRAM"] {
-            let type_lower = metric_type.to_lowercase();
+        for metric_type in &["counter", "gauge", "histogram"] {
             let keys = self.get_metric_keys(&mut conn, metric_type).await?;
 
             debug!(
                 source = %self.name,
-                metric_type = %type_lower,
+                metric_type = %metric_type,
                 count = keys.len(),
                 "Found metric keys"
             );
 
-            for key in keys {
-                let hash_key = format!("{}:{}:{}", self.prefix, type_lower, key);
+            for hash_key in keys {
+                // The SET contains full hash key names, use them directly
                 let data = self.get_metric_data(&mut conn, &hash_key).await?;
 
                 if data.is_empty() {
