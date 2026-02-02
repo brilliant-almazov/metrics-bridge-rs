@@ -111,3 +111,7 @@ impl MetricFamily {
         self.metrics.push(metric);
     }
 }
+
+#[cfg(test)]
+#[path = "types_test.rs"]
+mod tests;

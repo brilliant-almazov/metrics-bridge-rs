@@ -178,3 +178,7 @@ pub fn record_request(success: bool) {
     let status = if success { "success" } else { "error" };
     SCRAPE_REQUESTS_TOTAL.with_label_values(&[status]).inc();
 }
+
+#[cfg(test)]
+#[path = "self_metrics_test.rs"]
+mod tests;
