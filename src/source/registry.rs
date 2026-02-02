@@ -131,3 +131,7 @@ impl std::fmt::Debug for SourceRegistry {
             .finish()
     }
 }
+
+#[cfg(test)]
+#[path = "registry_test.rs"]
+mod tests;
