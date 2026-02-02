@@ -485,10 +485,7 @@ async fn test_ready_handler_all_healthy() {
         allowed_networks: vec![],
     };
 
-    let state = Arc::new(AppState {
-        config,
-        registry,
-    });
+    let state = Arc::new(AppState { config, registry });
 
     let response = ready_handler(State(state)).await.into_response();
     assert_eq!(response.status(), StatusCode::OK);
@@ -510,10 +507,7 @@ async fn test_ready_handler_some_unhealthy() {
         allowed_networks: vec![],
     };
 
-    let state = Arc::new(AppState {
-        config,
-        registry,
-    });
+    let state = Arc::new(AppState { config, registry });
 
     let response = ready_handler(State(state)).await.into_response();
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
@@ -530,10 +524,7 @@ async fn test_ready_handler_empty_registry() {
         allowed_networks: vec![],
     };
 
-    let state = Arc::new(AppState {
-        config,
-        registry,
-    });
+    let state = Arc::new(AppState { config, registry });
 
     let response = ready_handler(State(state)).await.into_response();
     assert_eq!(response.status(), StatusCode::OK);
@@ -552,10 +543,7 @@ async fn test_metrics_handler_success() {
         allowed_networks: vec![],
     };
 
-    let state = Arc::new(AppState {
-        config,
-        registry,
-    });
+    let state = Arc::new(AppState { config, registry });
 
     let response = metrics_handler(State(state)).await.into_response();
     assert_eq!(response.status(), StatusCode::OK);
@@ -577,10 +565,7 @@ async fn test_metrics_handler_with_cache() {
         allowed_networks: vec![],
     };
 
-    let state = Arc::new(AppState {
-        config,
-        registry,
-    });
+    let state = Arc::new(AppState { config, registry });
 
     // First request - populates cache
     let response1 = metrics_handler(State(state.clone())).await.into_response();
@@ -607,10 +592,7 @@ async fn test_metrics_handler_with_errors() {
         allowed_networks: vec![],
     };
 
-    let state = Arc::new(AppState {
-        config,
-        registry,
-    });
+    let state = Arc::new(AppState { config, registry });
 
     // Should still return 200, just with fewer metrics
     let response = metrics_handler(State(state)).await.into_response();
@@ -628,10 +610,7 @@ async fn test_metrics_handler_empty_registry() {
         allowed_networks: vec![],
     };
 
-    let state = Arc::new(AppState {
-        config,
-        registry,
-    });
+    let state = Arc::new(AppState { config, registry });
 
     let response = metrics_handler(State(state)).await.into_response();
     assert_eq!(response.status(), StatusCode::OK);
@@ -645,14 +624,32 @@ fn test_gzip_level_to_quality() {
     use tower_http::CompressionLevel;
 
     // Fastest (1-3)
-    assert!(matches!(gzip_level_to_quality(1), CompressionLevel::Fastest));
-    assert!(matches!(gzip_level_to_quality(2), CompressionLevel::Fastest));
-    assert!(matches!(gzip_level_to_quality(3), CompressionLevel::Fastest));
+    assert!(matches!(
+        gzip_level_to_quality(1),
+        CompressionLevel::Fastest
+    ));
+    assert!(matches!(
+        gzip_level_to_quality(2),
+        CompressionLevel::Fastest
+    ));
+    assert!(matches!(
+        gzip_level_to_quality(3),
+        CompressionLevel::Fastest
+    ));
 
     // Default (4-6)
-    assert!(matches!(gzip_level_to_quality(4), CompressionLevel::Default));
-    assert!(matches!(gzip_level_to_quality(5), CompressionLevel::Default));
-    assert!(matches!(gzip_level_to_quality(6), CompressionLevel::Default));
+    assert!(matches!(
+        gzip_level_to_quality(4),
+        CompressionLevel::Default
+    ));
+    assert!(matches!(
+        gzip_level_to_quality(5),
+        CompressionLevel::Default
+    ));
+    assert!(matches!(
+        gzip_level_to_quality(6),
+        CompressionLevel::Default
+    ));
 
     // Best (7-9)
     assert!(matches!(gzip_level_to_quality(7), CompressionLevel::Best));
@@ -660,8 +657,14 @@ fn test_gzip_level_to_quality() {
     assert!(matches!(gzip_level_to_quality(9), CompressionLevel::Best));
 
     // Out of range defaults to Default
-    assert!(matches!(gzip_level_to_quality(0), CompressionLevel::Default));
-    assert!(matches!(gzip_level_to_quality(10), CompressionLevel::Default));
+    assert!(matches!(
+        gzip_level_to_quality(0),
+        CompressionLevel::Default
+    ));
+    assert!(matches!(
+        gzip_level_to_quality(10),
+        CompressionLevel::Default
+    ));
 }
 
 #[tokio::test]
