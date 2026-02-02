@@ -1,5 +1,7 @@
 # metrics-bridge
 
+**English** | [Русский](docs/README.ru.md) | [中文](docs/README.zh.md) | [हिंदी](docs/README.hi.md) | [Español](docs/README.es.md) | [Português](docs/README.pt.md) | [Français](docs/README.fr.md) | [Deutsch](docs/README.de.md) | [日本語](docs/README.ja.md) | [한국어](docs/README.ko.md) | [Polski](docs/README.pl.md) | [Nederlands](docs/README.nl.md) | [Italiano](docs/README.it.md) | [Türkçe](docs/README.tr.md) | [Українська](docs/README.uk.md) | [Bahasa Indonesia](docs/README.id.md) | [Tiếng Việt](docs/README.vi.md) | [Svenska](docs/README.sv.md) | [Suomi](docs/README.fi.md)
+
 [![Test](https://github.com/brilliant-almazov/metrics-bridge-rs/actions/workflows/test.yml/badge.svg)](https://github.com/brilliant-almazov/metrics-bridge-rs/actions/workflows/test.yml)
 [![Release](https://github.com/brilliant-almazov/metrics-bridge-rs/actions/workflows/release.yml/badge.svg)](https://github.com/brilliant-almazov/metrics-bridge-rs/actions/workflows/release.yml)
 [![codecov](https://codecov.io/gh/brilliant-almazov/metrics-bridge-rs/graph/badge.svg)](https://codecov.io/gh/brilliant-almazov/metrics-bridge-rs)
