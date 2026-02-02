@@ -3,7 +3,7 @@
 //! Reads metrics from Redis stored by promphp/prometheus_client_php.
 
 use super::{Source, SourceError, SourceResult};
-use crate::config::SourceConfig;
+use crate::config::{LabelFormat, SourceConfig};
 use crate::metrics::{parse_promphp_metric, MetricFamily};
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -95,6 +95,7 @@ pub struct PromphpRedisSource<C: RedisClient = DeadpoolRedisClient> {
     name: String,
     prefix: String,
     extra_labels: HashMap<String, String>,
+    label_format: LabelFormat,
     client: Arc<C>,
 }
 
@@ -107,6 +108,7 @@ impl PromphpRedisSource<DeadpoolRedisClient> {
             name: config.name.clone(),
             prefix: config.prefix.clone(),
             extra_labels: config.labels.clone(),
+            label_format: config.label_format,
             client: Arc::new(client),
         })
     }
@@ -124,6 +126,24 @@ impl<C: RedisClient> PromphpRedisSource<C> {
             name,
             prefix,
             extra_labels,
+            label_format: LabelFormat::Auto,
+            client,
+        }
+    }
+
+    /// Creates a new promphp Redis source with custom client and label format.
+    pub fn with_client_and_format(
+        name: String,
+        prefix: String,
+        extra_labels: HashMap<String, String>,
+        label_format: LabelFormat,
+        client: Arc<C>,
+    ) -> Self {
+        Self {
+            name,
+            prefix,
+            extra_labels,
+            label_format,
             client,
         }
     }
@@ -168,7 +188,7 @@ impl<C: RedisClient + 'static> Source for PromphpRedisSource<C> {
                     continue;
                 }
 
-                match parse_promphp_metric(data) {
+                match parse_promphp_metric(data, self.label_format) {
                     Ok(metric) => {
                         family.add_metric(metric);
                     }

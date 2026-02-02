@@ -121,6 +121,19 @@ pub enum SourceType {
     PromphpRedis,
 }
 
+/// Label encoding format for promphp metrics.
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum LabelFormat {
+    /// Auto-detect format (try JSON first, then base64).
+    #[default]
+    Auto,
+    /// Raw JSON array format: `["value1", "value2"]`
+    Json,
+    /// Base64-encoded JSON array format.
+    Base64,
+}
+
 impl fmt::Display for SourceType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -143,6 +156,9 @@ pub struct SourceConfig {
     /// Cache TTL in seconds for this source. 0 = no caching (default).
     #[serde(default)]
     pub cache_ttl_seconds: u64,
+    /// Label encoding format. Default: auto-detect.
+    #[serde(default)]
+    pub label_format: LabelFormat,
 }
 
 fn default_prefix() -> String {
