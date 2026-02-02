@@ -5,6 +5,7 @@
 //! - GET /health - Health check (always returns 200)
 //! - GET /ready - Readiness check (200 if all sources healthy)
 
+use crate::cache::MetricsCache;
 use crate::config::{AuthType, Config};
 use crate::metrics::render_metrics;
 use crate::self_metrics;
@@ -24,7 +25,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::net::TcpListener;
-use tokio::sync::RwLock;
 use tower_http::compression::CompressionLayer;
 use tracing::info;
 
@@ -36,21 +36,16 @@ mod tests;
 pub struct AppState {
     pub config: Config,
     pub registry: SourceRegistry,
-    pub cached_metrics: RwLock<Option<CachedMetrics>>,
-}
-
-#[derive(Clone)]
-pub struct CachedMetrics {
-    pub data: String,
-    pub timestamp: Instant,
+    pub cache: MetricsCache,
 }
 
 impl AppState {
     pub fn new(config: Config, registry: SourceRegistry) -> Self {
+        let cache = MetricsCache::new(config.server.cache_ttl_seconds);
         Self {
             config,
             registry,
-            cached_metrics: RwLock::new(None),
+            cache,
         }
     }
 }
@@ -98,10 +93,11 @@ pub async fn start_server(state: Arc<AppState>) {
         } else {
             format!("{:?}", config.server.allowed_ips)
         },
-        config
-            .server
-            .cache_ttl_seconds
-            .map_or("disabled".to_string(), |t| format!("{}s", t))
+        if config.server.cache_ttl_seconds == 0 {
+            "disabled".to_string()
+        } else {
+            format!("{}s", config.server.cache_ttl_seconds)
+        }
     );
 
     axum::serve(
@@ -206,23 +202,17 @@ fn check_bearer_auth(request: &Request<Body>, config: &Config) -> bool {
 
 /// GET /metrics - Returns Prometheus metrics.
 async fn metrics_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    // Check cache if enabled
-    if let Some(ttl_seconds) = state.config.server.cache_ttl_seconds {
-        let cache = state.cached_metrics.read().await;
-        if let Some(cached) = cache.as_ref() {
-            if cached.timestamp.elapsed().as_secs() < ttl_seconds {
-                self_metrics::record_request(true);
-                return (
-                    StatusCode::OK,
-                    [(
-                        header::CONTENT_TYPE,
-                        "text/plain; version=0.0.4; charset=utf-8",
-                    )],
-                    cached.data.clone(),
-                );
-            }
-        }
-        drop(cache);
+    // Try cache first (unified API - returns None if disabled or expired)
+    if let Some(cached) = state.cache.get().await {
+        self_metrics::record_request(true);
+        return (
+            StatusCode::OK,
+            [(
+                header::CONTENT_TYPE,
+                "text/plain; version=0.0.4; charset=utf-8",
+            )],
+            cached,
+        );
     }
 
     let start = Instant::now();
@@ -255,14 +245,8 @@ async fn metrics_handler(State(state): State<Arc<AppState>>) -> impl IntoRespons
     // Then append collected metrics from sources
     output.push_str(&render_metrics(&families));
 
-    // Update cache if enabled
-    if state.config.server.cache_ttl_seconds.is_some() {
-        let mut cache = state.cached_metrics.write().await;
-        *cache = Some(CachedMetrics {
-            data: output.clone(),
-            timestamp: Instant::now(),
-        });
-    }
+    // Store in cache (no-op if disabled)
+    state.cache.set(output.clone()).await;
 
     (
         StatusCode::OK,
