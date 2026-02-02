@@ -114,6 +114,7 @@ sources:
 | Option | Default | Description |
 |--------|---------|-------------|
 | `port` | `9090` | HTTP server port |
+| `gzip_level` | - | GZIP compression level 1-9 (1=fastest, 9=best), disabled if not set |
 | `auth.type` | `none` | Authentication type: `none`, `basic`, `bearer` |
 | `auth.username` | - | Username for basic auth |
 | `auth.password` | - | Password for basic auth |
@@ -131,6 +132,7 @@ sources:
 | `redis_url` | *required* | Redis connection URL |
 | `prefix` | `PROMETHEUS_` | Redis key prefix |
 | `cache_ttl_seconds` | `0` | Cache TTL in seconds (0 = disabled) |
+| `label_format` | `auto` | Label encoding format: `auto`, `json`, `base64` |
 | `labels` | `{}` | Extra labels to add to all metrics |
 
 ### Environment Variables
@@ -175,12 +177,41 @@ metrics_bridge_build_info{version="0.1.0",rust_version="1.84"} 1
 
 This exporter reads metrics stored by [promphp/prometheus_client_php](https://github.com/promphp/prometheus_client_php) in Redis:
 
-- `{prefix}:COUNTER_METRIC_KEYS` - SET with counter key names
-- `{prefix}:GAUGE_METRIC_KEYS` - SET with gauge key names
-- `{prefix}:HISTOGRAM_METRIC_KEYS` - SET with histogram key names
+- `{prefix}counter_METRIC_KEYS` - SET with counter key names
+- `{prefix}gauge_METRIC_KEYS` - SET with gauge key names
+- `{prefix}histogram_METRIC_KEYS` - SET with histogram key names
 - `{prefix}:{type}:{name}` - HASH with:
   - `__meta` - JSON metadata: `{"name", "help", "type", "labelNames", "buckets"}`
-  - `base64(json(labelValues))` → value
+  - Label keys → metric values
+
+### Supported Label Formats
+
+The exporter supports two label encoding formats used by promphp:
+
+| Format | Example | Description |
+|--------|---------|-------------|
+| Raw JSON | `["GET","/api",200]` | Labels as JSON array (mixed types supported) |
+| Base64 | `WyJHRVQiXQ==` | Base64-encoded JSON array |
+
+#### Label Format Configuration
+
+You can configure the label format per source using `label_format`:
+
+```yaml
+sources:
+  - name: my-app
+    type: promphp-redis
+    redis_url: redis://localhost:6379
+    label_format: json  # Explicit JSON format (best performance)
+```
+
+| Value | Description |
+|-------|-------------|
+| `auto` | Auto-detect format (default). Tries JSON first, then base64. Convenient but slightly slower. |
+| `json` | Raw JSON array format. Use when you know your promphp stores labels as JSON. Best performance. |
+| `base64` | Base64-encoded JSON. Use when you know your promphp stores labels as base64. |
+
+> **Performance tip**: If you know your promphp configuration, set `label_format` explicitly to avoid auto-detection overhead.
 
 ## Building
 

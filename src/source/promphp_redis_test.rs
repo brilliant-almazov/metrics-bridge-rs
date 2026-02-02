@@ -108,7 +108,7 @@ fn create_gauge_hash(name: &str, help: &str, value: f64) -> HashMap<String, Stri
 
 #[tokio::test]
 async fn test_source_creation() {
-    use crate::config::{SourceConfig, SourceType};
+    use crate::config::{LabelFormat, SourceConfig, SourceType};
 
     let config = SourceConfig {
         name: "test".to_string(),
@@ -117,6 +117,7 @@ async fn test_source_creation() {
         prefix: "PROMETHEUS_".to_string(),
         labels: HashMap::new(),
         cache_ttl_seconds: 0,
+        label_format: LabelFormat::Auto,
     };
 
     // This will fail without Redis, but tests the creation path
