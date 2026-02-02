@@ -185,6 +185,25 @@ fn check_bearer_auth(request: &Request<Body>, config: &Config) -> bool {
 
 /// GET /metrics - Returns Prometheus metrics.
 async fn metrics_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    // Check cache if enabled
+    if let Some(ttl_seconds) = state.config.server.cache_ttl_seconds {
+        let cache = state.cached_metrics.read().await;
+        if let Some(cached) = cache.as_ref() {
+            if cached.timestamp.elapsed().as_secs() < ttl_seconds {
+                self_metrics::record_request(true);
+                return (
+                    StatusCode::OK,
+                    [(
+                        header::CONTENT_TYPE,
+                        "text/plain; version=0.0.4; charset=utf-8",
+                    )],
+                    cached.data.clone(),
+                );
+            }
+        }
+        drop(cache);
+    }
+
     let start = Instant::now();
 
     // Collect from all sources
@@ -211,6 +230,15 @@ async fn metrics_handler(State(state): State<Arc<AppState>>) -> impl IntoRespons
     let mut buffer = Vec::new();
     encoder.encode(&metric_families, &mut buffer).unwrap();
     output.push_str(&String::from_utf8_lossy(&buffer));
+
+    // Update cache if enabled
+    if state.config.server.cache_ttl_seconds.is_some() {
+        let mut cache = state.cached_metrics.write().await;
+        *cache = Some(CachedMetrics {
+            data: output.clone(),
+            timestamp: Instant::now(),
+        });
+    }
 
     (
         StatusCode::OK,
