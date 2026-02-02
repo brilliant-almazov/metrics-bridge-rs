@@ -305,3 +305,101 @@ async fn test_registry_metrics_content() {
     assert_eq!(metric.samples.len(), 1);
     assert_eq!(metric.samples[0].value, 42.0);
 }
+
+// Per-source caching tests
+
+use std::sync::atomic::{AtomicU32, Ordering};
+
+/// Counting mock source that tracks collect calls.
+#[derive(Debug)]
+struct CountingMockSource {
+    name: String,
+    collect_count: AtomicU32,
+}
+
+impl CountingMockSource {
+    fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            collect_count: AtomicU32::new(0),
+        }
+    }
+
+    fn collect_count(&self) -> u32 {
+        self.collect_count.load(Ordering::SeqCst)
+    }
+}
+
+#[async_trait::async_trait]
+impl Source for CountingMockSource {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    async fn collect(&self) -> SourceResult<MetricFamily> {
+        self.collect_count.fetch_add(1, Ordering::SeqCst);
+
+        let mut family = MetricFamily::new(&self.name);
+        let mut metric = Metric::new(
+            format!("{}_requests", self.name),
+            "Mock metric",
+            MetricType::Counter,
+        );
+        metric.add_sample(Sample::new(HashMap::new(), 42.0));
+        family.add_metric(metric);
+
+        Ok(family)
+    }
+
+    async fn health_check(&self) -> bool {
+        true
+    }
+}
+
+#[tokio::test]
+async fn test_registry_with_sources_and_ttls() {
+    let source1 = Arc::new(CountingMockSource::new("source1"));
+    let source2 = Arc::new(CountingMockSource::new("source2"));
+
+    let registry = SourceRegistry::with_sources_and_ttls(vec![
+        (source1.clone() as Arc<dyn Source>, 5), // 5 second TTL
+        (source2.clone() as Arc<dyn Source>, 0), // No caching
+    ]);
+
+    assert_eq!(registry.len(), 2);
+
+    // First collect - both should be called
+    let (families, errors) = registry.collect_all().await;
+    assert!(errors.is_empty());
+    assert_eq!(families.len(), 2);
+    assert_eq!(source1.collect_count(), 1);
+    assert_eq!(source2.collect_count(), 1);
+
+    // Second collect - source1 cached (TTL 5s), source2 not cached
+    let (families, errors) = registry.collect_all().await;
+    assert!(errors.is_empty());
+    assert_eq!(families.len(), 2);
+    assert_eq!(source1.collect_count(), 1); // Still 1 - cached
+    assert_eq!(source2.collect_count(), 2); // Incremented - no cache
+}
+
+#[tokio::test]
+async fn test_registry_per_source_cache_returns_same_data() {
+    let source = Arc::new(CountingMockSource::new("cached_source"));
+
+    let registry =
+        SourceRegistry::with_sources_and_ttls(vec![(source.clone() as Arc<dyn Source>, 60)]);
+
+    // First collect
+    let (families1, _) = registry.collect_all().await;
+    assert_eq!(families1.len(), 1);
+    assert_eq!(families1[0].metrics[0].name, "cached_source_requests");
+
+    // Second collect should return cached data
+    let (families2, _) = registry.collect_all().await;
+    assert_eq!(families2.len(), 1);
+    assert_eq!(families2[0].metrics[0].name, "cached_source_requests");
+
+    // Only one actual collect call
+    assert_eq!(source.collect_count(), 1);
+}

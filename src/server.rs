@@ -5,7 +5,6 @@
 //! - GET /health - Health check (always returns 200)
 //! - GET /ready - Readiness check (200 if all sources healthy)
 
-use crate::cache::MetricsCache;
 use crate::config::{AuthType, Config};
 use crate::metrics::render_metrics;
 use crate::self_metrics;
@@ -36,17 +35,11 @@ mod tests;
 pub struct AppState {
     pub config: Config,
     pub registry: SourceRegistry,
-    pub cache: MetricsCache,
 }
 
 impl AppState {
     pub fn new(config: Config, registry: SourceRegistry) -> Self {
-        let cache = MetricsCache::new(config.server.cache_ttl_seconds);
-        Self {
-            config,
-            registry,
-            cache,
-        }
+        Self { config, registry }
     }
 }
 
@@ -211,22 +204,9 @@ fn check_bearer_auth(request: &Request<Body>, config: &Config) -> bool {
 
 /// GET /metrics - Returns Prometheus metrics.
 async fn metrics_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    // Try cache first (unified API - returns None if disabled or expired)
-    if let Some(cached) = state.cache.get().await {
-        self_metrics::record_request(true);
-        return (
-            StatusCode::OK,
-            [(
-                header::CONTENT_TYPE,
-                "text/plain; version=0.0.4; charset=utf-8",
-            )],
-            cached,
-        );
-    }
-
     let start = Instant::now();
 
-    // Collect from all sources
+    // Collect from all sources (per-source caching handled internally)
     let (families, errors) = state.registry.collect_all().await;
 
     // Record self-metrics
@@ -253,9 +233,6 @@ async fn metrics_handler(State(state): State<Arc<AppState>>) -> impl IntoRespons
 
     // Then append collected metrics from sources
     output.push_str(&render_metrics(&families));
-
-    // Store in cache (no-op if disabled)
-    state.cache.set(output.clone()).await;
 
     (
         StatusCode::OK,

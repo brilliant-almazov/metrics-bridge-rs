@@ -411,7 +411,6 @@ async fn test_health_handler() {
 
 // Integration tests for handlers
 
-use crate::cache::MetricsCache;
 use crate::metrics::{Metric, MetricFamily, MetricType, Sample};
 use crate::source::{Source, SourceError, SourceResult};
 use std::collections::HashMap;
@@ -489,7 +488,6 @@ async fn test_ready_handler_all_healthy() {
     let state = Arc::new(AppState {
         config,
         registry,
-        cache: MetricsCache::new(0),
     });
 
     let response = ready_handler(State(state)).await.into_response();
@@ -515,7 +513,6 @@ async fn test_ready_handler_some_unhealthy() {
     let state = Arc::new(AppState {
         config,
         registry,
-        cache: MetricsCache::new(0),
     });
 
     let response = ready_handler(State(state)).await.into_response();
@@ -536,7 +533,6 @@ async fn test_ready_handler_empty_registry() {
     let state = Arc::new(AppState {
         config,
         registry,
-        cache: MetricsCache::new(0),
     });
 
     let response = ready_handler(State(state)).await.into_response();
@@ -559,7 +555,6 @@ async fn test_metrics_handler_success() {
     let state = Arc::new(AppState {
         config,
         registry,
-        cache: MetricsCache::new(0),
     });
 
     let response = metrics_handler(State(state)).await.into_response();
@@ -585,7 +580,6 @@ async fn test_metrics_handler_with_cache() {
     let state = Arc::new(AppState {
         config,
         registry,
-        cache: MetricsCache::new(60),
     });
 
     // First request - populates cache
@@ -616,7 +610,6 @@ async fn test_metrics_handler_with_errors() {
     let state = Arc::new(AppState {
         config,
         registry,
-        cache: MetricsCache::new(0),
     });
 
     // Should still return 200, just with fewer metrics
@@ -638,7 +631,6 @@ async fn test_metrics_handler_empty_registry() {
     let state = Arc::new(AppState {
         config,
         registry,
-        cache: MetricsCache::new(0),
     });
 
     let response = metrics_handler(State(state)).await.into_response();
@@ -683,7 +675,6 @@ async fn test_build_router_health_endpoint() {
             allowed_networks: vec![],
         },
         registry: SourceRegistry::new(),
-        cache: MetricsCache::new(0),
     });
 
     let app = build_router(state);
@@ -714,7 +705,6 @@ async fn test_build_router_metrics_endpoint() {
             allowed_networks: vec![],
         },
         registry: SourceRegistry::with_sources(sources),
-        cache: MetricsCache::new(0),
     });
 
     let app = build_router(state);
@@ -744,7 +734,6 @@ async fn test_build_router_ready_endpoint_healthy() {
             allowed_networks: vec![],
         },
         registry: SourceRegistry::with_sources(sources),
-        cache: MetricsCache::new(0),
     });
 
     let app = build_router(state);
@@ -774,7 +763,6 @@ async fn test_build_router_ready_endpoint_unhealthy() {
             allowed_networks: vec![],
         },
         registry: SourceRegistry::with_sources(sources),
-        cache: MetricsCache::new(0),
     });
 
     let app = build_router(state);

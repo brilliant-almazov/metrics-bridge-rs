@@ -116,6 +116,7 @@ async fn test_source_creation() {
         redis_url: "redis://localhost:6379".to_string(),
         prefix: "PROMETHEUS_".to_string(),
         labels: HashMap::new(),
+        cache_ttl_seconds: 0,
     };
 
     // This will fail without Redis, but tests the creation path
