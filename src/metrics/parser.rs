@@ -113,7 +113,12 @@ fn parse_sample(key: &str, value: &str, meta: &MetricMeta) -> Result<Vec<Sample>
 }
 
 fn decode_label_values(key: &str) -> Result<Vec<String>, ParseError> {
-    // Decode base64
+    // First try parsing as raw JSON (promphp can store labels as raw JSON arrays)
+    if let Ok(values) = serde_json::from_str::<Vec<String>>(key) {
+        return Ok(values);
+    }
+
+    // Fall back to base64 decoding (older promphp format)
     let decoded = STANDARD
         .decode(key)
         .map_err(|e| ParseError::InvalidBase64(e.to_string()))?;
