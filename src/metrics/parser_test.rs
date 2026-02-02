@@ -1,6 +1,7 @@
 //! Tests for metrics parser.
 
 use super::*;
+use crate::config::LabelFormat;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use std::collections::HashMap;
 
@@ -19,14 +20,14 @@ fn test_parse_metric_type() {
 fn test_decode_label_values() {
     // base64 of ["value1", "value2"]
     let encoded = STANDARD.encode(r#"["value1","value2"]"#);
-    let values = decode_label_values(&encoded).unwrap();
+    let values = decode_label_values(&encoded, LabelFormat::Auto).unwrap();
     assert_eq!(values, vec!["value1", "value2"]);
 }
 
 #[test]
 fn test_decode_empty_labels() {
     let encoded = STANDARD.encode("[]");
-    let values = decode_label_values(&encoded).unwrap();
+    let values = decode_label_values(&encoded, LabelFormat::Auto).unwrap();
     assert!(values.is_empty());
 }
 
@@ -42,7 +43,7 @@ fn test_parse_counter() {
     let label_key = STANDARD.encode(r#"["GET"]"#);
     hash_data.insert(label_key, "42".to_string());
 
-    let metric = parse_promphp_metric(hash_data).unwrap();
+    let metric = parse_promphp_metric(hash_data, LabelFormat::Auto).unwrap();
     assert_eq!(metric.name, "test_counter");
     assert_eq!(metric.metric_type, MetricType::Counter);
     assert_eq!(metric.samples.len(), 1);
@@ -61,7 +62,7 @@ fn test_parse_gauge() {
     let label_key = STANDARD.encode(r#"["heap"]"#);
     hash_data.insert(label_key, "1048576".to_string());
 
-    let metric = parse_promphp_metric(hash_data).unwrap();
+    let metric = parse_promphp_metric(hash_data, LabelFormat::Auto).unwrap();
     assert_eq!(metric.name, "memory_bytes");
     assert_eq!(metric.metric_type, MetricType::Gauge);
     assert_eq!(metric.samples[0].value, 1048576.0);
@@ -80,7 +81,7 @@ fn test_parse_histogram() {
         r#"{"sum":1.5,"count":100,"buckets":{"0.01":10,"0.05":50,"0.1":90}}"#.to_string(),
     );
 
-    let metric = parse_promphp_metric(hash_data).unwrap();
+    let metric = parse_promphp_metric(hash_data, LabelFormat::Auto).unwrap();
     assert_eq!(metric.name, "request_duration");
     assert_eq!(metric.metric_type, MetricType::Histogram);
 
@@ -114,7 +115,7 @@ fn test_format_bucket_key() {
 #[test]
 fn test_missing_meta() {
     let hash_data = HashMap::new();
-    let result = parse_promphp_metric(hash_data);
+    let result = parse_promphp_metric(hash_data, LabelFormat::Auto);
     assert!(result.is_err());
 }
 
@@ -122,7 +123,7 @@ fn test_missing_meta() {
 fn test_invalid_meta_json() {
     let mut hash_data = HashMap::new();
     hash_data.insert("__meta".to_string(), "not json".to_string());
-    let result = parse_promphp_metric(hash_data);
+    let result = parse_promphp_metric(hash_data, LabelFormat::Auto);
     assert!(result.is_err());
 }
 
@@ -137,7 +138,7 @@ fn test_parse_summary() {
     let label_key = STANDARD.encode("[]");
     hash_data.insert(label_key, "123.45".to_string());
 
-    let metric = parse_promphp_metric(hash_data).unwrap();
+    let metric = parse_promphp_metric(hash_data, LabelFormat::Auto).unwrap();
     assert_eq!(metric.name, "request_latency");
     assert_eq!(metric.metric_type, MetricType::Summary);
     assert_eq!(metric.samples[0].value, 123.45);
@@ -156,7 +157,7 @@ fn test_parse_metric_type_unknown() {
 fn test_decode_label_values_raw_json() {
     // Test raw JSON format (not base64)
     let raw_json = r#"["value1","value2"]"#;
-    let values = decode_label_values(raw_json).unwrap();
+    let values = decode_label_values(raw_json, LabelFormat::Json).unwrap();
     assert_eq!(values, vec!["value1", "value2"]);
 }
 
@@ -164,7 +165,7 @@ fn test_decode_label_values_raw_json() {
 fn test_decode_label_values_mixed_types() {
     // Test raw JSON with mixed types (strings + numbers) - common in promphp
     let raw_json = r#"["POST","api_endpoint","/v1/auth",401]"#;
-    let values = decode_label_values(raw_json).unwrap();
+    let values = decode_label_values(raw_json, LabelFormat::Json).unwrap();
     assert_eq!(values, vec!["POST", "api_endpoint", "/v1/auth", "401"]);
 }
 
@@ -180,7 +181,7 @@ fn test_parse_counter_with_mixed_label_types() {
     let label_key = r#"["GET","api_users","/v1/users",200]"#;
     hash_data.insert(label_key.to_string(), "42".to_string());
 
-    let metric = parse_promphp_metric(hash_data).unwrap();
+    let metric = parse_promphp_metric(hash_data, LabelFormat::Auto).unwrap();
     assert_eq!(metric.name, "http_requests");
     assert_eq!(metric.samples.len(), 1);
     assert_eq!(metric.samples[0].labels.get("method").unwrap(), "GET");
@@ -189,7 +190,7 @@ fn test_parse_counter_with_mixed_label_types() {
 
 #[test]
 fn test_decode_label_values_invalid_base64() {
-    let result = decode_label_values("not-valid-base64!!!");
+    let result = decode_label_values("not-valid-base64!!!", LabelFormat::Base64);
     assert!(result.is_err());
     assert!(matches!(result, Err(ParseError::InvalidBase64(_))));
 }
@@ -204,7 +205,7 @@ fn test_parse_invalid_value() {
     let label_key = STANDARD.encode("[]");
     hash_data.insert(label_key, "not-a-number".to_string());
 
-    let result = parse_promphp_metric(hash_data);
+    let result = parse_promphp_metric(hash_data, LabelFormat::Auto);
     assert!(result.is_err());
     assert!(matches!(result, Err(ParseError::InvalidValue(_))));
 }
@@ -244,7 +245,7 @@ fn test_histogram_missing_bucket() {
         r#"{"sum":10.0,"count":50,"buckets":{"0.1":10,"1":40}}"#.to_string(),
     );
 
-    let metric = parse_promphp_metric(hash_data).unwrap();
+    let metric = parse_promphp_metric(hash_data, LabelFormat::Auto).unwrap();
 
     // Should still work, missing bucket defaults to 0
     assert_eq!(metric.samples.len(), 6); // 3 buckets + inf + sum + count

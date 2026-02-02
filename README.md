@@ -132,6 +132,7 @@ sources:
 | `redis_url` | *required* | Redis connection URL |
 | `prefix` | `PROMETHEUS_` | Redis key prefix |
 | `cache_ttl_seconds` | `0` | Cache TTL in seconds (0 = disabled) |
+| `label_format` | `auto` | Label encoding format: `auto`, `json`, `base64` |
 | `labels` | `{}` | Extra labels to add to all metrics |
 
 ### Environment Variables
@@ -185,14 +186,32 @@ This exporter reads metrics stored by [promphp/prometheus_client_php](https://gi
 
 ### Supported Label Formats
 
-The exporter automatically detects the label encoding format:
+The exporter supports two label encoding formats used by promphp:
 
 | Format | Example | Description |
 |--------|---------|-------------|
 | Raw JSON | `["GET","/api",200]` | Labels as JSON array (mixed types supported) |
 | Base64 | `WyJHRVQiXQ==` | Base64-encoded JSON array |
 
-Both formats are auto-detected, no configuration needed.
+#### Label Format Configuration
+
+You can configure the label format per source using `label_format`:
+
+```yaml
+sources:
+  - name: my-app
+    type: promphp-redis
+    redis_url: redis://localhost:6379
+    label_format: json  # Explicit JSON format (best performance)
+```
+
+| Value | Description |
+|-------|-------------|
+| `auto` | Auto-detect format (default). Tries JSON first, then base64. Convenient but slightly slower. |
+| `json` | Raw JSON array format. Use when you know your promphp stores labels as JSON. Best performance. |
+| `base64` | Base64-encoded JSON. Use when you know your promphp stores labels as base64. |
+
+> **Performance tip**: If you know your promphp configuration, set `label_format` explicitly to avoid auto-detection overhead.
 
 ## Building
 

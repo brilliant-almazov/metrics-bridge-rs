@@ -37,6 +37,7 @@ sources:
     redis_url: ${REDIS_URL}  # e.g., redis://localhost:6379
     prefix: "PROMETHEUS_"    # promphp default prefix
     cache_ttl_seconds: 5     # Cache metrics for 5 seconds (0 = disabled)
+    label_format: auto       # Label encoding: auto | json | base64 (auto = detect automatically)
     labels:                  # Extra labels added to all metrics
       app: my-app
       environment: production
@@ -47,5 +48,6 @@ sources:
   #   redis_url: ${REDIS_WORKER_URL}
   #   prefix: "PROMETHEUS_"
   #   cache_ttl_seconds: 0   # No caching for this source
+  #   label_format: json     # Use explicit format for best performance
   #   labels:
   #     app: worker
