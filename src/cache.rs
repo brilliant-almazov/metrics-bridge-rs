@@ -80,32 +80,5 @@ pub fn create_cache(ttl_seconds: u64) -> Arc<MetricsCache> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_cache_disabled() {
-        let cache = MetricsCache::new(0);
-        assert!(!cache.is_enabled());
-
-        cache.set("test".to_string()).await;
-        assert!(cache.get().await.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_cache_enabled() {
-        let cache = MetricsCache::new(60);
-        assert!(cache.is_enabled());
-
-        cache.set("test data".to_string()).await;
-        assert_eq!(cache.get().await, Some("test data".to_string()));
-    }
-
-    #[tokio::test]
-    async fn test_cache_clear() {
-        let cache = MetricsCache::new(60);
-        cache.set("data".to_string()).await;
-        cache.clear().await;
-        assert!(cache.get().await.is_none());
-    }
-}
+#[path = "cache_test.rs"]
+mod tests;
