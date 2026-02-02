@@ -90,6 +90,9 @@ pub struct ServerConfig {
     pub allowed_ips: Vec<String>,
     #[serde(default)]
     pub tls: TlsConfig,
+    /// Optional cache TTL in seconds. If set, metrics are cached for this duration.
+    #[serde(default)]
+    pub cache_ttl_seconds: Option<u64>,
 }
 
 fn default_port() -> u16 {
@@ -103,6 +106,7 @@ impl Default for ServerConfig {
             auth: AuthConfig::default(),
             allowed_ips: Vec::new(),
             tls: TlsConfig::default(),
+            cache_ttl_seconds: None,
         }
     }
 }
