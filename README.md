@@ -195,6 +195,21 @@ Run E2E tests against Redis, Dragonfly, Valkey, and KeyDB:
 docker compose -f docker-compose.test.yml up --build
 ```
 
+## Performance
+
+Benchmark results from CI environment (actual performance will be better):
+
+| Store | Avg Latency | Throughput |
+|-------|-------------|------------|
+| Redis 7 | ~5ms | ~168 req/s |
+| Redis 6 | ~5ms | ~189 req/s |
+| Dragonfly | ~6ms | ~157 req/s |
+| Valkey | ~6ms | ~166 req/s |
+| KeyDB | ~6ms | ~164 req/s |
+
+> **Note**: These numbers are from GitHub Actions runners with small test datasets.
+> In production with optimized hardware, expect sub-millisecond latencies and 1000+ req/s.
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
