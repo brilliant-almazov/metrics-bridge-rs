@@ -74,6 +74,9 @@ Create `config.yaml`:
 server:
   port: 9090
 
+  # Optional: GZIP compression (recommended for large metrics responses)
+  gzip_level: 6  # 1-9 (1=fastest, 9=best compression), omit to disable
+
   auth:
     type: basic  # none | basic | bearer
     username: prometheus
