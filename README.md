@@ -114,6 +114,7 @@ sources:
 | Option | Default | Description |
 |--------|---------|-------------|
 | `port` | `9090` | HTTP server port |
+| `gzip_level` | - | GZIP compression level 1-9 (1=fastest, 9=best), disabled if not set |
 | `auth.type` | `none` | Authentication type: `none`, `basic`, `bearer` |
 | `auth.username` | - | Username for basic auth |
 | `auth.password` | - | Password for basic auth |
@@ -175,12 +176,23 @@ metrics_bridge_build_info{version="0.1.0",rust_version="1.84"} 1
 
 This exporter reads metrics stored by [promphp/prometheus_client_php](https://github.com/promphp/prometheus_client_php) in Redis:
 
-- `{prefix}:COUNTER_METRIC_KEYS` - SET with counter key names
-- `{prefix}:GAUGE_METRIC_KEYS` - SET with gauge key names
-- `{prefix}:HISTOGRAM_METRIC_KEYS` - SET with histogram key names
+- `{prefix}counter_METRIC_KEYS` - SET with counter key names
+- `{prefix}gauge_METRIC_KEYS` - SET with gauge key names
+- `{prefix}histogram_METRIC_KEYS` - SET with histogram key names
 - `{prefix}:{type}:{name}` - HASH with:
   - `__meta` - JSON metadata: `{"name", "help", "type", "labelNames", "buckets"}`
-  - `base64(json(labelValues))` → value
+  - Label keys → metric values
+
+### Supported Label Formats
+
+The exporter automatically detects the label encoding format:
+
+| Format | Example | Description |
+|--------|---------|-------------|
+| Raw JSON | `["GET","/api",200]` | Labels as JSON array (mixed types supported) |
+| Base64 | `WyJHRVQiXQ==` | Base64-encoded JSON array |
+
+Both formats are auto-detected, no configuration needed.
 
 ## Building
 

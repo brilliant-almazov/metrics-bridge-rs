@@ -4,6 +4,9 @@
 server:
   port: 9090
 
+  # GZIP compression (optional, recommended for large metrics)
+  # gzip_level: 6  # 1-9 (1=fastest, 9=best compression)
+
   # Authentication (optional)
   auth:
     type: none  # none | basic | bearer

@@ -161,6 +161,33 @@ fn test_decode_label_values_raw_json() {
 }
 
 #[test]
+fn test_decode_label_values_mixed_types() {
+    // Test raw JSON with mixed types (strings + numbers) - common in promphp
+    let raw_json = r#"["POST","api_endpoint","/v1/auth",401]"#;
+    let values = decode_label_values(raw_json).unwrap();
+    assert_eq!(values, vec!["POST", "api_endpoint", "/v1/auth", "401"]);
+}
+
+#[test]
+fn test_parse_counter_with_mixed_label_types() {
+    let mut hash_data = HashMap::new();
+    hash_data.insert(
+        "__meta".to_string(),
+        r#"{"name":"http_requests","help":"HTTP requests","type":"counter","labelNames":["method","route","path","status"]}"#
+            .to_string(),
+    );
+    // Raw JSON with mixed types (strings + number for status code)
+    let label_key = r#"["GET","api_users","/v1/users",200]"#;
+    hash_data.insert(label_key.to_string(), "42".to_string());
+
+    let metric = parse_promphp_metric(hash_data).unwrap();
+    assert_eq!(metric.name, "http_requests");
+    assert_eq!(metric.samples.len(), 1);
+    assert_eq!(metric.samples[0].labels.get("method").unwrap(), "GET");
+    assert_eq!(metric.samples[0].labels.get("status").unwrap(), "200");
+}
+
+#[test]
 fn test_decode_label_values_invalid_base64() {
     let result = decode_label_values("not-valid-base64!!!");
     assert!(result.is_err());

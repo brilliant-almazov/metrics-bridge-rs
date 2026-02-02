@@ -114,8 +114,19 @@ fn parse_sample(key: &str, value: &str, meta: &MetricMeta) -> Result<Vec<Sample>
 
 fn decode_label_values(key: &str) -> Result<Vec<String>, ParseError> {
     // First try parsing as raw JSON (promphp can store labels as raw JSON arrays)
-    if let Ok(values) = serde_json::from_str::<Vec<String>>(key) {
-        return Ok(values);
+    // Labels may contain mixed types (strings, numbers), so parse as Value first
+    if let Ok(values) = serde_json::from_str::<Vec<serde_json::Value>>(key) {
+        let string_values: Vec<String> = values
+            .into_iter()
+            .map(|v| match v {
+                serde_json::Value::String(s) => s,
+                serde_json::Value::Number(n) => n.to_string(),
+                serde_json::Value::Bool(b) => b.to_string(),
+                serde_json::Value::Null => "".to_string(),
+                other => other.to_string(),
+            })
+            .collect();
+        return Ok(string_values);
     }
 
     // Fall back to base64 decoding (older promphp format)
@@ -126,7 +137,22 @@ fn decode_label_values(key: &str) -> Result<Vec<String>, ParseError> {
     let json_str =
         String::from_utf8(decoded).map_err(|e| ParseError::InvalidBase64(e.to_string()))?;
 
-    // Parse JSON array
+    // Parse JSON array - also handle mixed types
+    if let Ok(values) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
+        let string_values: Vec<String> = values
+            .into_iter()
+            .map(|v| match v {
+                serde_json::Value::String(s) => s,
+                serde_json::Value::Number(n) => n.to_string(),
+                serde_json::Value::Bool(b) => b.to_string(),
+                serde_json::Value::Null => "".to_string(),
+                other => other.to_string(),
+            })
+            .collect();
+        return Ok(string_values);
+    }
+
+    // Try parsing as string array for backwards compatibility
     let values: Vec<String> =
         serde_json::from_str(&json_str).map_err(|e| ParseError::InvalidLabelJson(e.to_string()))?;
 
