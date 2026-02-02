@@ -50,12 +50,9 @@ impl AppState {
     }
 }
 
-/// Starts the HTTP server.
-pub async fn start_server(state: Arc<AppState>) {
-    let config = &state.config;
-
-    // Build base router
-    let base_router = Router::new()
+/// Builds the application router with all routes and middleware.
+pub fn build_router(state: Arc<AppState>) -> Router {
+    Router::new()
         .route("/metrics", get(metrics_handler))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -63,17 +60,29 @@ pub async fn start_server(state: Arc<AppState>) {
         ))
         .route("/health", get(health_handler))
         .route("/ready", get(ready_handler))
-        .with_state(state.clone());
+        .with_state(state)
+}
+
+/// Converts gzip level (1-9) to compression quality.
+fn gzip_level_to_quality(level: u32) -> tower_http::CompressionLevel {
+    match level {
+        1..=3 => tower_http::CompressionLevel::Fastest,
+        4..=6 => tower_http::CompressionLevel::Default,
+        7..=9 => tower_http::CompressionLevel::Best,
+        _ => tower_http::CompressionLevel::Default,
+    }
+}
+
+/// Starts the HTTP server.
+pub async fn start_server(state: Arc<AppState>) {
+    let config = &state.config;
+
+    // Build base router
+    let base_router = build_router(state.clone());
 
     // Add compression layer if configured
-    let app = if config.server.gzip_level.is_some() {
-        let level = config.server.gzip_level.unwrap();
-        let quality = match level {
-            1..=3 => tower_http::CompressionLevel::Fastest,
-            4..=6 => tower_http::CompressionLevel::Default,
-            7..=9 => tower_http::CompressionLevel::Best,
-            _ => tower_http::CompressionLevel::Default,
-        };
+    let app = if let Some(level) = config.server.gzip_level {
+        let quality = gzip_level_to_quality(level);
         let compression = CompressionLayer::new().gzip(true).quality(quality);
         info!("GZIP compression enabled (level {})", level);
         base_router.layer(compression)
