@@ -1,7 +1,7 @@
 # Build stage
 FROM rust:1.85-alpine AS builder
 
-RUN apk add --no-cache musl-dev
+RUN apk add --no-cache musl-dev make
 
 WORKDIR /app
 
