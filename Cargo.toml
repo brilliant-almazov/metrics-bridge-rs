@@ -48,6 +48,7 @@ tikv-jemallocator = { version = "0.6", features = ["background_threads"] }
 
 [dev-dependencies]
 tokio-test = "0.4"
+serial_test = "3"
 
 [profile.release]
 lto = true

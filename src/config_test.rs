@@ -1,8 +1,10 @@
 //! Tests for config module.
 
 use super::*;
+use serial_test::serial;
 
 #[test]
+#[serial]
 fn test_expand_env_vars() {
     std::env::set_var("TEST_VAR", "test_value");
     let result = expand_env_vars("prefix_${TEST_VAR}_suffix").unwrap();
@@ -23,6 +25,7 @@ fn test_expand_env_vars_no_vars() {
 }
 
 #[test]
+#[serial]
 fn test_expand_env_vars_multiple() {
     std::env::set_var("VAR_A", "first");
     std::env::set_var("VAR_B", "second");
@@ -33,6 +36,7 @@ fn test_expand_env_vars_multiple() {
 }
 
 #[test]
+#[serial]
 fn test_expand_env_vars_empty_value() {
     std::env::set_var("EMPTY_VAR", "");
     let result = expand_env_vars("prefix${EMPTY_VAR}suffix").unwrap();
@@ -226,6 +230,7 @@ fn test_config_error_display() {
 }
 
 #[test]
+#[serial]
 fn test_config_load_from_base64() {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
@@ -252,6 +257,7 @@ sources:
 }
 
 #[test]
+#[serial]
 fn test_config_load_invalid_base64() {
     std::env::set_var("CONFIG_BASE64", "not-valid-base64!!!");
     std::env::remove_var("CONFIG_FILE");
@@ -263,6 +269,7 @@ fn test_config_load_invalid_base64() {
 }
 
 #[test]
+#[serial]
 fn test_config_load_invalid_yaml() {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
@@ -278,6 +285,7 @@ fn test_config_load_invalid_yaml() {
 }
 
 #[test]
+#[serial]
 fn test_config_load_missing_sources() {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
@@ -299,6 +307,7 @@ sources: []
 }
 
 #[test]
+#[serial]
 fn test_config_load_basic_auth_missing_credentials() {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
@@ -325,6 +334,7 @@ sources:
 }
 
 #[test]
+#[serial]
 fn test_config_load_with_allowed_ips() {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
@@ -352,6 +362,7 @@ sources:
 }
 
 #[test]
+#[serial]
 fn test_config_load_with_env_var_substitution() {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
@@ -379,6 +390,7 @@ sources:
 }
 
 #[test]
+#[serial]
 fn test_config_load_with_cache_and_gzip() {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
@@ -406,6 +418,7 @@ sources:
 }
 
 #[test]
+#[serial]
 fn test_config_load_with_extra_labels() {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
@@ -440,6 +453,7 @@ sources:
 }
 
 #[test]
+#[serial]
 fn test_config_load_default_prefix() {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
@@ -464,6 +478,7 @@ sources:
 }
 
 #[test]
+#[serial]
 fn test_config_load_custom_prefix() {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
@@ -537,4 +552,55 @@ fn test_tls_config_is_enabled() {
         key: None,
     };
     assert!(!partial.is_enabled());
+}
+
+#[test]
+#[serial]
+fn test_config_load_from_file() {
+    use std::fs;
+    use std::io::Write;
+
+    // Create temp config file
+    let temp_dir = std::env::temp_dir();
+    let config_path = temp_dir.join("test_config_load.yaml");
+
+    let yaml = r#"
+server:
+  port: 7777
+sources:
+  - name: file-source
+    type: promphp-redis
+    redis_url: redis://localhost:6379
+"#;
+
+    let mut file = fs::File::create(&config_path).unwrap();
+    file.write_all(yaml.as_bytes()).unwrap();
+
+    // Set CONFIG_FILE and clear CONFIG_BASE64
+    std::env::remove_var("CONFIG_BASE64");
+    std::env::set_var("CONFIG_FILE", config_path.to_str().unwrap());
+
+    let config = Config::load().unwrap();
+
+    assert_eq!(config.server.port, 7777);
+    assert_eq!(config.sources[0].name, "file-source");
+
+    // Cleanup
+    std::env::remove_var("CONFIG_FILE");
+    fs::remove_file(config_path).ok();
+}
+
+#[test]
+#[serial]
+fn test_config_load_from_default_yaml() {
+    // Test loading from default config.yaml (if it exists)
+    std::env::remove_var("CONFIG_BASE64");
+    std::env::remove_var("CONFIG_FILE");
+
+    // This test verifies the default config.yaml loading path
+    // If config.yaml exists in cwd, it will load it
+    let result = Config::load();
+
+    // Just verify the code path executes - behavior depends on config.yaml presence
+    drop(result);
 }

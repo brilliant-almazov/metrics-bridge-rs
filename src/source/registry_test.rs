@@ -1,5 +1,6 @@
 //! Tests for source registry.
 
+use super::SourceRegistry;
 use crate::metrics::{Metric, MetricFamily, MetricType, Sample};
 use crate::source::{Source, SourceError, SourceResult};
 use std::collections::HashMap;
@@ -59,89 +60,35 @@ impl Source for MockSource {
     }
 }
 
-/// Test registry that accepts mock sources.
-struct TestRegistry {
-    sources: Vec<Arc<dyn Source>>,
+#[test]
+fn test_registry_new() {
+    let registry = SourceRegistry::new();
+    assert!(registry.is_empty());
+    assert_eq!(registry.len(), 0);
 }
 
-impl TestRegistry {
-    fn new() -> Self {
-        Self { sources: vec![] }
-    }
-
-    fn add(&mut self, source: impl Source + 'static) {
-        self.sources.push(Arc::new(source));
-    }
-
-    fn len(&self) -> usize {
-        self.sources.len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.sources.is_empty()
-    }
-
-    async fn collect_all(&self) -> (Vec<MetricFamily>, Vec<(String, SourceError)>) {
-        let futures: Vec<_> = self
-            .sources
-            .iter()
-            .map(|source| {
-                let source = Arc::clone(source);
-                async move {
-                    let name = source.name().to_string();
-                    let result = source.collect().await;
-                    (name, result)
-                }
-            })
-            .collect();
-
-        let results = futures::future::join_all(futures).await;
-
-        let mut families = Vec::new();
-        let mut errors = Vec::new();
-
-        for (name, result) in results {
-            match result {
-                Ok(family) => families.push(family),
-                Err(e) => errors.push((name, e)),
-            }
-        }
-
-        (families, errors)
-    }
-
-    async fn health_check_all(&self) -> Vec<(String, bool)> {
-        let futures: Vec<_> = self
-            .sources
-            .iter()
-            .map(|source| {
-                let source = Arc::clone(source);
-                async move {
-                    let name = source.name().to_string();
-                    let healthy = source.health_check().await;
-                    (name, healthy)
-                }
-            })
-            .collect();
-
-        futures::future::join_all(futures).await
-    }
+#[test]
+fn test_registry_default() {
+    let registry = SourceRegistry::default();
+    assert!(registry.is_empty());
 }
 
-#[tokio::test]
-async fn test_registry_empty() {
-    let registry = TestRegistry::new();
+#[test]
+fn test_registry_empty() {
+    let registry = SourceRegistry::new();
 
     assert!(registry.is_empty());
     assert_eq!(registry.len(), 0);
 }
 
-#[tokio::test]
-async fn test_registry_add_sources() {
-    let mut registry = TestRegistry::new();
+#[test]
+fn test_registry_with_sources() {
+    let sources: Vec<Arc<dyn Source>> = vec![
+        Arc::new(MockSource::new("source1")),
+        Arc::new(MockSource::new("source2")),
+    ];
 
-    registry.add(MockSource::new("source1"));
-    registry.add(MockSource::new("source2"));
+    let registry = SourceRegistry::with_sources(sources);
 
     assert!(!registry.is_empty());
     assert_eq!(registry.len(), 2);
@@ -149,9 +96,12 @@ async fn test_registry_add_sources() {
 
 #[tokio::test]
 async fn test_registry_collect_all_success() {
-    let mut registry = TestRegistry::new();
-    registry.add(MockSource::new("source1"));
-    registry.add(MockSource::new("source2"));
+    let sources: Vec<Arc<dyn Source>> = vec![
+        Arc::new(MockSource::new("source1")),
+        Arc::new(MockSource::new("source2")),
+    ];
+
+    let registry = SourceRegistry::with_sources(sources);
 
     let (families, errors) = registry.collect_all().await;
 
@@ -161,9 +111,12 @@ async fn test_registry_collect_all_success() {
 
 #[tokio::test]
 async fn test_registry_collect_all_with_failures() {
-    let mut registry = TestRegistry::new();
-    registry.add(MockSource::new("healthy"));
-    registry.add(MockSource::failing("failing"));
+    let sources: Vec<Arc<dyn Source>> = vec![
+        Arc::new(MockSource::new("healthy")),
+        Arc::new(MockSource::failing("failing")),
+    ];
+
+    let registry = SourceRegistry::with_sources(sources);
 
     let (families, errors) = registry.collect_all().await;
 
@@ -173,10 +126,23 @@ async fn test_registry_collect_all_with_failures() {
 }
 
 #[tokio::test]
+async fn test_registry_collect_all_empty() {
+    let registry = SourceRegistry::new();
+
+    let (families, errors) = registry.collect_all().await;
+
+    assert!(families.is_empty());
+    assert!(errors.is_empty());
+}
+
+#[tokio::test]
 async fn test_registry_health_check_all_healthy() {
-    let mut registry = TestRegistry::new();
-    registry.add(MockSource::new("source1"));
-    registry.add(MockSource::new("source2"));
+    let sources: Vec<Arc<dyn Source>> = vec![
+        Arc::new(MockSource::new("source1")),
+        Arc::new(MockSource::new("source2")),
+    ];
+
+    let registry = SourceRegistry::with_sources(sources);
 
     let results = registry.health_check_all().await;
 
@@ -186,9 +152,12 @@ async fn test_registry_health_check_all_healthy() {
 
 #[tokio::test]
 async fn test_registry_health_check_mixed() {
-    let mut registry = TestRegistry::new();
-    registry.add(MockSource::new("healthy"));
-    registry.add(MockSource::failing("unhealthy"));
+    let sources: Vec<Arc<dyn Source>> = vec![
+        Arc::new(MockSource::new("healthy")),
+        Arc::new(MockSource::failing("unhealthy")),
+    ];
+
+    let registry = SourceRegistry::with_sources(sources);
 
     let results = registry.health_check_all().await;
 
@@ -202,9 +171,51 @@ async fn test_registry_health_check_mixed() {
 }
 
 #[tokio::test]
+async fn test_registry_health_check_empty() {
+    let registry = SourceRegistry::new();
+
+    let results = registry.health_check_all().await;
+
+    assert!(results.is_empty());
+}
+
+#[tokio::test]
+async fn test_registry_all_healthy_true() {
+    let sources: Vec<Arc<dyn Source>> = vec![
+        Arc::new(MockSource::new("source1")),
+        Arc::new(MockSource::new("source2")),
+    ];
+
+    let registry = SourceRegistry::with_sources(sources);
+
+    assert!(registry.all_healthy().await);
+}
+
+#[tokio::test]
+async fn test_registry_all_healthy_false() {
+    let sources: Vec<Arc<dyn Source>> = vec![
+        Arc::new(MockSource::new("healthy")),
+        Arc::new(MockSource::failing("unhealthy")),
+    ];
+
+    let registry = SourceRegistry::with_sources(sources);
+
+    assert!(!registry.all_healthy().await);
+}
+
+#[tokio::test]
+async fn test_registry_all_healthy_empty() {
+    let registry = SourceRegistry::new();
+
+    // Empty registry is considered healthy
+    assert!(registry.all_healthy().await);
+}
+
+#[tokio::test]
 async fn test_registry_collect_returns_metric_families() {
-    let mut registry = TestRegistry::new();
-    registry.add(MockSource::new("test"));
+    let sources: Vec<Arc<dyn Source>> = vec![Arc::new(MockSource::new("test"))];
+
+    let registry = SourceRegistry::with_sources(sources);
 
     let (families, _) = registry.collect_all().await;
 
@@ -212,6 +223,20 @@ async fn test_registry_collect_returns_metric_families() {
     assert_eq!(families[0].source, "test");
     assert_eq!(families[0].metrics.len(), 1);
     assert_eq!(families[0].metrics[0].name, "test_requests");
+}
+
+#[test]
+fn test_registry_debug() {
+    let sources: Vec<Arc<dyn Source>> = vec![
+        Arc::new(MockSource::new("source1")),
+        Arc::new(MockSource::new("source2")),
+    ];
+
+    let registry = SourceRegistry::with_sources(sources);
+
+    let debug_str = format!("{:?}", registry);
+    assert!(debug_str.contains("SourceRegistry"));
+    assert!(debug_str.contains("sources_count: 2"));
 }
 
 #[test]
@@ -227,4 +252,56 @@ fn test_source_error_display() {
 
     let e = SourceError::Redis("redis error".to_string());
     assert!(e.to_string().contains("redis error"));
+}
+
+#[test]
+fn test_source_error_debug() {
+    let e = SourceError::Connection("test".to_string());
+    let debug = format!("{:?}", e);
+    assert!(debug.contains("Connection"));
+}
+
+#[tokio::test]
+async fn test_registry_collect_all_all_fail() {
+    let sources: Vec<Arc<dyn Source>> = vec![
+        Arc::new(MockSource::failing("fail1")),
+        Arc::new(MockSource::failing("fail2")),
+    ];
+
+    let registry = SourceRegistry::with_sources(sources);
+
+    let (families, errors) = registry.collect_all().await;
+
+    assert!(families.is_empty());
+    assert_eq!(errors.len(), 2);
+}
+
+#[tokio::test]
+async fn test_registry_all_healthy_single_unhealthy() {
+    let sources: Vec<Arc<dyn Source>> = vec![Arc::new(MockSource::failing("unhealthy"))];
+
+    let registry = SourceRegistry::with_sources(sources);
+
+    assert!(!registry.all_healthy().await);
+}
+
+#[tokio::test]
+async fn test_registry_metrics_content() {
+    let sources: Vec<Arc<dyn Source>> = vec![Arc::new(MockSource::new("myapp"))];
+
+    let registry = SourceRegistry::with_sources(sources);
+
+    let (families, errors) = registry.collect_all().await;
+
+    assert!(errors.is_empty());
+    assert_eq!(families.len(), 1);
+
+    let family = &families[0];
+    assert_eq!(family.source, "myapp");
+    assert_eq!(family.metrics.len(), 1);
+
+    let metric = &family.metrics[0];
+    assert_eq!(metric.name, "myapp_requests");
+    assert_eq!(metric.samples.len(), 1);
+    assert_eq!(metric.samples[0].value, 42.0);
 }

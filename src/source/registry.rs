@@ -14,6 +14,16 @@ pub struct SourceRegistry {
 }
 
 impl SourceRegistry {
+    /// Creates a new empty registry.
+    pub fn new() -> Self {
+        Self { sources: vec![] }
+    }
+
+    /// Creates a registry with the given sources.
+    pub fn with_sources(sources: Vec<Arc<dyn Source>>) -> Self {
+        Self { sources }
+    }
+
     /// Creates a new registry from configuration.
     pub fn from_config(config: &Config) -> Result<Self, SourceError> {
         let mut sources: Vec<Arc<dyn Source>> = Vec::new();
@@ -121,6 +131,12 @@ impl SourceRegistry {
     pub async fn all_healthy(&self) -> bool {
         let results = self.health_check_all().await;
         results.iter().all(|(_, healthy)| *healthy)
+    }
+}
+
+impl Default for SourceRegistry {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
