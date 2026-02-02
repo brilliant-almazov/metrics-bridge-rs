@@ -409,4 +409,370 @@ async fn test_health_handler() {
     assert_eq!(response.status(), StatusCode::OK);
 }
 
-// Cache tests are in cache.rs
+// Integration tests for handlers
+
+use crate::cache::MetricsCache;
+use crate::metrics::{Metric, MetricFamily, MetricType, Sample};
+use crate::source::{Source, SourceError, SourceResult};
+use std::collections::HashMap;
+
+/// Mock source for integration testing.
+#[derive(Debug)]
+struct MockSource {
+    name: String,
+    should_fail: bool,
+    healthy: bool,
+}
+
+impl MockSource {
+    fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            should_fail: false,
+            healthy: true,
+        }
+    }
+
+    fn failing(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            should_fail: true,
+            healthy: false,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl Source for MockSource {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    async fn collect(&self) -> SourceResult<MetricFamily> {
+        if self.should_fail {
+            return Err(SourceError::Connection("mock failure".to_string()));
+        }
+
+        let mut family = MetricFamily::new(&self.name);
+        let mut metric = Metric::new(
+            format!("{}_requests", self.name),
+            "Mock metric",
+            MetricType::Counter,
+        );
+        metric.add_sample(Sample::new(HashMap::new(), 42.0));
+        family.add_metric(metric);
+
+        Ok(family)
+    }
+
+    async fn health_check(&self) -> bool {
+        self.healthy
+    }
+}
+
+#[tokio::test]
+async fn test_ready_handler_all_healthy() {
+    use crate::source::SourceRegistry;
+
+    let sources: Vec<Arc<dyn Source>> = vec![
+        Arc::new(MockSource::new("source1")),
+        Arc::new(MockSource::new("source2")),
+    ];
+
+    let registry = SourceRegistry::with_sources(sources);
+    let config = Config {
+        server: ServerConfig::default(),
+        sources: vec![],
+        allowed_networks: vec![],
+    };
+
+    let state = Arc::new(AppState {
+        config,
+        registry,
+        cache: MetricsCache::new(0),
+    });
+
+    let response = ready_handler(State(state)).await.into_response();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_ready_handler_some_unhealthy() {
+    use crate::source::SourceRegistry;
+
+    let sources: Vec<Arc<dyn Source>> = vec![
+        Arc::new(MockSource::new("healthy")),
+        Arc::new(MockSource::failing("unhealthy")),
+    ];
+
+    let registry = SourceRegistry::with_sources(sources);
+    let config = Config {
+        server: ServerConfig::default(),
+        sources: vec![],
+        allowed_networks: vec![],
+    };
+
+    let state = Arc::new(AppState {
+        config,
+        registry,
+        cache: MetricsCache::new(0),
+    });
+
+    let response = ready_handler(State(state)).await.into_response();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
+async fn test_ready_handler_empty_registry() {
+    use crate::source::SourceRegistry;
+
+    let registry = SourceRegistry::new();
+    let config = Config {
+        server: ServerConfig::default(),
+        sources: vec![],
+        allowed_networks: vec![],
+    };
+
+    let state = Arc::new(AppState {
+        config,
+        registry,
+        cache: MetricsCache::new(0),
+    });
+
+    let response = ready_handler(State(state)).await.into_response();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_metrics_handler_success() {
+    use crate::source::SourceRegistry;
+
+    let sources: Vec<Arc<dyn Source>> = vec![Arc::new(MockSource::new("test"))];
+
+    let registry = SourceRegistry::with_sources(sources);
+    let config = Config {
+        server: ServerConfig::default(),
+        sources: vec![],
+        allowed_networks: vec![],
+    };
+
+    let state = Arc::new(AppState {
+        config,
+        registry,
+        cache: MetricsCache::new(0),
+    });
+
+    let response = metrics_handler(State(state)).await.into_response();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_metrics_handler_with_cache() {
+    use crate::source::SourceRegistry;
+
+    let sources: Vec<Arc<dyn Source>> = vec![Arc::new(MockSource::new("cached"))];
+
+    let registry = SourceRegistry::with_sources(sources);
+    let config = Config {
+        server: ServerConfig {
+            cache_ttl_seconds: 60,
+            ..Default::default()
+        },
+        sources: vec![],
+        allowed_networks: vec![],
+    };
+
+    let state = Arc::new(AppState {
+        config,
+        registry,
+        cache: MetricsCache::new(60),
+    });
+
+    // First request - populates cache
+    let response1 = metrics_handler(State(state.clone())).await.into_response();
+    assert_eq!(response1.status(), StatusCode::OK);
+
+    // Second request - should use cache
+    let response2 = metrics_handler(State(state)).await.into_response();
+    assert_eq!(response2.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_metrics_handler_with_errors() {
+    use crate::source::SourceRegistry;
+
+    let sources: Vec<Arc<dyn Source>> = vec![
+        Arc::new(MockSource::new("ok")),
+        Arc::new(MockSource::failing("fail")),
+    ];
+
+    let registry = SourceRegistry::with_sources(sources);
+    let config = Config {
+        server: ServerConfig::default(),
+        sources: vec![],
+        allowed_networks: vec![],
+    };
+
+    let state = Arc::new(AppState {
+        config,
+        registry,
+        cache: MetricsCache::new(0),
+    });
+
+    // Should still return 200, just with fewer metrics
+    let response = metrics_handler(State(state)).await.into_response();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_metrics_handler_empty_registry() {
+    use crate::source::SourceRegistry;
+
+    let registry = SourceRegistry::new();
+    let config = Config {
+        server: ServerConfig::default(),
+        sources: vec![],
+        allowed_networks: vec![],
+    };
+
+    let state = Arc::new(AppState {
+        config,
+        registry,
+        cache: MetricsCache::new(0),
+    });
+
+    let response = metrics_handler(State(state)).await.into_response();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+// Integration tests using tower::ServiceExt
+use axum::routing::get;
+use axum::Router;
+use tower::ServiceExt;
+
+fn create_test_app(state: Arc<AppState>) -> Router {
+    Router::new()
+        .route("/metrics", get(metrics_handler))
+        .route("/health", get(health_handler))
+        .route("/ready", get(ready_handler))
+        .with_state(state)
+}
+
+#[tokio::test]
+async fn test_router_health_endpoint() {
+    use crate::source::SourceRegistry;
+
+    let state = Arc::new(AppState {
+        config: Config {
+            server: ServerConfig::default(),
+            sources: vec![],
+            allowed_networks: vec![],
+        },
+        registry: SourceRegistry::new(),
+        cache: MetricsCache::new(0),
+    });
+
+    let app = create_test_app(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_router_metrics_endpoint() {
+    use crate::source::SourceRegistry;
+
+    let sources: Vec<Arc<dyn Source>> = vec![Arc::new(MockSource::new("test"))];
+    let state = Arc::new(AppState {
+        config: Config {
+            server: ServerConfig::default(),
+            sources: vec![],
+            allowed_networks: vec![],
+        },
+        registry: SourceRegistry::with_sources(sources),
+        cache: MetricsCache::new(0),
+    });
+
+    let app = create_test_app(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/metrics")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_router_ready_endpoint_healthy() {
+    use crate::source::SourceRegistry;
+
+    let sources: Vec<Arc<dyn Source>> = vec![Arc::new(MockSource::new("healthy"))];
+    let state = Arc::new(AppState {
+        config: Config {
+            server: ServerConfig::default(),
+            sources: vec![],
+            allowed_networks: vec![],
+        },
+        registry: SourceRegistry::with_sources(sources),
+        cache: MetricsCache::new(0),
+    });
+
+    let app = create_test_app(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/ready")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_router_ready_endpoint_unhealthy() {
+    use crate::source::SourceRegistry;
+
+    let sources: Vec<Arc<dyn Source>> = vec![Arc::new(MockSource::failing("unhealthy"))];
+    let state = Arc::new(AppState {
+        config: Config {
+            server: ServerConfig::default(),
+            sources: vec![],
+            allowed_networks: vec![],
+        },
+        registry: SourceRegistry::with_sources(sources),
+        cache: MetricsCache::new(0),
+    });
+
+    let app = create_test_app(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/ready")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+}

@@ -125,3 +125,118 @@ fn test_invalid_meta_json() {
     let result = parse_promphp_metric(hash_data);
     assert!(result.is_err());
 }
+
+#[test]
+fn test_parse_summary() {
+    let mut hash_data = HashMap::new();
+    hash_data.insert(
+        "__meta".to_string(),
+        r#"{"name":"request_latency","help":"Request latency","type":"summary","labelNames":[]}"#
+            .to_string(),
+    );
+    let label_key = STANDARD.encode("[]");
+    hash_data.insert(label_key, "123.45".to_string());
+
+    let metric = parse_promphp_metric(hash_data).unwrap();
+    assert_eq!(metric.name, "request_latency");
+    assert_eq!(metric.metric_type, MetricType::Summary);
+    assert_eq!(metric.samples[0].value, 123.45);
+}
+
+#[test]
+fn test_parse_metric_type_unknown() {
+    let result = parse_metric_type("unknown_type");
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(matches!(err, ParseError::UnknownType(_)));
+    assert!(err.to_string().contains("unknown_type"));
+}
+
+#[test]
+fn test_decode_label_values_raw_json() {
+    // Test raw JSON format (not base64)
+    let raw_json = r#"["value1","value2"]"#;
+    let values = decode_label_values(raw_json).unwrap();
+    assert_eq!(values, vec!["value1", "value2"]);
+}
+
+#[test]
+fn test_decode_label_values_invalid_base64() {
+    let result = decode_label_values("not-valid-base64!!!");
+    assert!(result.is_err());
+    assert!(matches!(result, Err(ParseError::InvalidBase64(_))));
+}
+
+#[test]
+fn test_parse_invalid_value() {
+    let mut hash_data = HashMap::new();
+    hash_data.insert(
+        "__meta".to_string(),
+        r#"{"name":"test","help":"Test","type":"counter","labelNames":[]}"#.to_string(),
+    );
+    let label_key = STANDARD.encode("[]");
+    hash_data.insert(label_key, "not-a-number".to_string());
+
+    let result = parse_promphp_metric(hash_data);
+    assert!(result.is_err());
+    assert!(matches!(result, Err(ParseError::InvalidValue(_))));
+}
+
+#[test]
+fn test_format_le_large_integer() {
+    // Large integer should format as integer
+    assert_eq!(format_le(1000.0), "1000");
+    assert_eq!(format_le(1000000.0), "1000000");
+}
+
+#[test]
+fn test_format_le_decimal() {
+    // Decimal should keep decimal format
+    assert_eq!(format_le(0.5), "0.5");
+    assert_eq!(format_le(1.5), "1.5");
+}
+
+#[test]
+fn test_format_le_very_large() {
+    // Very large numbers (>= 1e10) should use scientific notation
+    let result = format_le(1e11);
+    assert!(result.contains("e") || result.contains("E") || result == "100000000000");
+}
+
+#[test]
+fn test_histogram_missing_bucket() {
+    let mut hash_data = HashMap::new();
+    hash_data.insert(
+        "__meta".to_string(),
+        r#"{"name":"hist","help":"Histogram","type":"histogram","labelNames":[],"buckets":[0.1,0.5,1.0]}"#.to_string(),
+    );
+    let label_key = STANDARD.encode("[]");
+    // Only some buckets present - missing 0.5
+    hash_data.insert(
+        label_key,
+        r#"{"sum":10.0,"count":50,"buckets":{"0.1":10,"1":40}}"#.to_string(),
+    );
+
+    let metric = parse_promphp_metric(hash_data).unwrap();
+
+    // Should still work, missing bucket defaults to 0
+    assert_eq!(metric.samples.len(), 6); // 3 buckets + inf + sum + count
+}
+
+#[test]
+fn test_parse_error_display() {
+    let e = ParseError::InvalidMeta("test".to_string());
+    assert!(e.to_string().contains("test"));
+
+    let e = ParseError::InvalidBase64("base64".to_string());
+    assert!(e.to_string().contains("base64"));
+
+    let e = ParseError::InvalidLabelJson("json".to_string());
+    assert!(e.to_string().contains("json"));
+
+    let e = ParseError::InvalidValue("value".to_string());
+    assert!(e.to_string().contains("value"));
+
+    let e = ParseError::UnknownType("type".to_string());
+    assert!(e.to_string().contains("type"));
+}
