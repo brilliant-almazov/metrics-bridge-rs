@@ -226,6 +226,269 @@ fn test_config_error_display() {
 }
 
 #[test]
+fn test_config_load_from_base64() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    let yaml = r#"
+server:
+  port: 8080
+sources:
+  - name: test-source
+    type: promphp-redis
+    redis_url: redis://localhost:6379
+"#;
+
+    let encoded = STANDARD.encode(yaml);
+    std::env::set_var("CONFIG_BASE64", &encoded);
+    std::env::remove_var("CONFIG_FILE");
+
+    let config = Config::load().unwrap();
+
+    assert_eq!(config.server.port, 8080);
+    assert_eq!(config.sources.len(), 1);
+    assert_eq!(config.sources[0].name, "test-source");
+
+    std::env::remove_var("CONFIG_BASE64");
+}
+
+#[test]
+fn test_config_load_invalid_base64() {
+    std::env::set_var("CONFIG_BASE64", "not-valid-base64!!!");
+    std::env::remove_var("CONFIG_FILE");
+
+    let result = Config::load();
+    assert!(result.is_err());
+
+    std::env::remove_var("CONFIG_BASE64");
+}
+
+#[test]
+fn test_config_load_invalid_yaml() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    let invalid_yaml = "{ invalid yaml [";
+    let encoded = STANDARD.encode(invalid_yaml);
+    std::env::set_var("CONFIG_BASE64", &encoded);
+    std::env::remove_var("CONFIG_FILE");
+
+    let result = Config::load();
+    assert!(result.is_err());
+
+    std::env::remove_var("CONFIG_BASE64");
+}
+
+#[test]
+fn test_config_load_missing_sources() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    let yaml = r#"
+server:
+  port: 8080
+sources: []
+"#;
+
+    let encoded = STANDARD.encode(yaml);
+    std::env::set_var("CONFIG_BASE64", &encoded);
+    std::env::remove_var("CONFIG_FILE");
+
+    let result = Config::load();
+    assert!(result.is_err());
+    assert!(matches!(result, Err(ConfigError::MissingValue(_))));
+
+    std::env::remove_var("CONFIG_BASE64");
+}
+
+#[test]
+fn test_config_load_basic_auth_missing_credentials() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    let yaml = r#"
+server:
+  port: 8080
+  auth:
+    type: basic
+sources:
+  - name: test
+    type: promphp-redis
+    redis_url: redis://localhost
+"#;
+
+    let encoded = STANDARD.encode(yaml);
+    std::env::set_var("CONFIG_BASE64", &encoded);
+    std::env::remove_var("CONFIG_FILE");
+
+    let result = Config::load();
+    assert!(result.is_err());
+    assert!(matches!(result, Err(ConfigError::InvalidValue(_))));
+
+    std::env::remove_var("CONFIG_BASE64");
+}
+
+#[test]
+fn test_config_load_with_allowed_ips() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    let yaml = r#"
+server:
+  port: 8080
+  allowed_ips:
+    - 10.0.0.0/8
+    - 192.168.1.1
+sources:
+  - name: test
+    type: promphp-redis
+    redis_url: redis://localhost
+"#;
+
+    let encoded = STANDARD.encode(yaml);
+    std::env::set_var("CONFIG_BASE64", &encoded);
+    std::env::remove_var("CONFIG_FILE");
+
+    let config = Config::load().unwrap();
+
+    assert_eq!(config.allowed_networks.len(), 2);
+
+    std::env::remove_var("CONFIG_BASE64");
+}
+
+#[test]
+fn test_config_load_with_env_var_substitution() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    std::env::set_var("TEST_REDIS_URL", "redis://testhost:6379");
+
+    let yaml = r#"
+server:
+  port: 8080
+sources:
+  - name: test
+    type: promphp-redis
+    redis_url: ${TEST_REDIS_URL}
+"#;
+
+    let encoded = STANDARD.encode(yaml);
+    std::env::set_var("CONFIG_BASE64", &encoded);
+    std::env::remove_var("CONFIG_FILE");
+
+    let config = Config::load().unwrap();
+
+    assert_eq!(config.sources[0].redis_url, "redis://testhost:6379");
+
+    std::env::remove_var("CONFIG_BASE64");
+    std::env::remove_var("TEST_REDIS_URL");
+}
+
+#[test]
+fn test_config_load_with_cache_and_gzip() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    let yaml = r#"
+server:
+  port: 8080
+  cache_ttl_seconds: 30
+  gzip_level: 6
+sources:
+  - name: test
+    type: promphp-redis
+    redis_url: redis://localhost
+"#;
+
+    let encoded = STANDARD.encode(yaml);
+    std::env::set_var("CONFIG_BASE64", &encoded);
+    std::env::remove_var("CONFIG_FILE");
+
+    let config = Config::load().unwrap();
+
+    assert_eq!(config.server.cache_ttl_seconds, 30);
+    assert_eq!(config.server.gzip_level, Some(6));
+
+    std::env::remove_var("CONFIG_BASE64");
+}
+
+#[test]
+fn test_config_load_with_extra_labels() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    let yaml = r#"
+server:
+  port: 8080
+sources:
+  - name: test
+    type: promphp-redis
+    redis_url: redis://localhost
+    labels:
+      env: production
+      region: us-east
+"#;
+
+    let encoded = STANDARD.encode(yaml);
+    std::env::set_var("CONFIG_BASE64", &encoded);
+    std::env::remove_var("CONFIG_FILE");
+
+    let config = Config::load().unwrap();
+
+    assert_eq!(
+        config.sources[0].labels.get("env"),
+        Some(&"production".to_string())
+    );
+    assert_eq!(
+        config.sources[0].labels.get("region"),
+        Some(&"us-east".to_string())
+    );
+
+    std::env::remove_var("CONFIG_BASE64");
+}
+
+#[test]
+fn test_config_load_default_prefix() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    let yaml = r#"
+server:
+  port: 8080
+sources:
+  - name: test
+    type: promphp-redis
+    redis_url: redis://localhost
+"#;
+
+    let encoded = STANDARD.encode(yaml);
+    std::env::set_var("CONFIG_BASE64", &encoded);
+    std::env::remove_var("CONFIG_FILE");
+
+    let config = Config::load().unwrap();
+
+    assert_eq!(config.sources[0].prefix, "PROMETHEUS_");
+
+    std::env::remove_var("CONFIG_BASE64");
+}
+
+#[test]
+fn test_config_load_custom_prefix() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    let yaml = r#"
+server:
+  port: 8080
+sources:
+  - name: test
+    type: promphp-redis
+    redis_url: redis://localhost
+    prefix: CUSTOM_
+"#;
+
+    let encoded = STANDARD.encode(yaml);
+    std::env::set_var("CONFIG_BASE64", &encoded);
+    std::env::remove_var("CONFIG_FILE");
+
+    let config = Config::load().unwrap();
+
+    assert_eq!(config.sources[0].prefix, "CUSTOM_");
+
+    std::env::remove_var("CONFIG_BASE64");
+}
+
+#[test]
 fn test_auth_type_display() {
     assert_eq!(AuthType::None.to_string(), "none");
     assert_eq!(AuthType::Basic.to_string(), "basic");
