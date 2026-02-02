@@ -27,6 +27,7 @@ PHP applications using promphp/prometheus_client_php write metrics to Redis. Rea
 ## Features
 
 - 🚀 **Fast** - Sub-millisecond response times (vs 50-200ms through PHP)
+- ⚡ **Per-source caching** - Individual cache TTL per source, 12,500+ RPS with cache
 - 🔌 **Multiple sources** - Aggregate metrics from multiple Redis instances
 - 🏷️ **Extra labels** - Add custom labels per source (e.g., `app`, `environment`)
 - 🔒 **Auth support** - Basic auth, Bearer token, IP whitelist
@@ -86,6 +87,7 @@ sources:
     type: promphp-redis
     redis_url: ${REDIS_WEB_URL}
     prefix: "PROMETHEUS_"
+    cache_ttl_seconds: 5  # Cache for 5 seconds
     labels:
       app: web
 
@@ -93,6 +95,7 @@ sources:
     type: promphp-redis
     redis_url: ${REDIS_WORKER_URL}
     prefix: "PROMETHEUS_"
+    cache_ttl_seconds: 0  # No caching
     labels:
       app: worker
 ```
@@ -111,7 +114,6 @@ sources:
 | `allowed_ips` | `[]` | IP whitelist (CIDR notation), empty = allow all |
 | `tls.cert` | - | Path to TLS certificate |
 | `tls.key` | - | Path to TLS private key |
-| `cache_ttl_seconds` | - | Optional metrics cache TTL in seconds |
 
 #### Sources
 
@@ -121,6 +123,7 @@ sources:
 | `type` | *required* | Source type: `promphp-redis` |
 | `redis_url` | *required* | Redis connection URL |
 | `prefix` | `PROMETHEUS_` | Redis key prefix |
+| `cache_ttl_seconds` | `0` | Cache TTL in seconds (0 = disabled) |
 | `labels` | `{}` | Extra labels to add to all metrics |
 
 ### Environment Variables
@@ -198,9 +201,9 @@ docker compose -f docker-compose.test.yml up --build
 
 ## Performance
 
-### With Caching Enabled (Recommended)
+### With Per-Source Caching (Recommended)
 
-Set `cache_ttl_seconds` to enable metrics caching (e.g., 5 seconds):
+Each source can have its own `cache_ttl_seconds`. Example with 5 second cache:
 
 | Metric | Value |
 |--------|-------|
@@ -210,7 +213,7 @@ Set `cache_ttl_seconds` to enable metrics caching (e.g., 5 seconds):
 
 ### Without Caching
 
-Direct Redis fetch on every request:
+Direct Redis fetch on every request (`cache_ttl_seconds: 0`):
 
 | Metric | Value |
 |--------|-------|
@@ -227,8 +230,8 @@ Direct Redis fetch on every request:
 | Valkey | ~6ms | ~166 req/s |
 | KeyDB | ~6ms | ~164 req/s |
 
-> **Recommendation**: Enable caching with `cache_ttl_seconds: 5` for production use.
-> Prometheus default scrape interval is 15s, so 5s cache is safe.
+> **Recommendation**: Enable per-source caching with `cache_ttl_seconds: 5` for production.
+> Prometheus default scrape interval is 15s, so 5s cache is safe. Each source can have different TTL.
 
 ## License
 
