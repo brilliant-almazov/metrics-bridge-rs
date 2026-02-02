@@ -1,0 +1,159 @@
+name: Performance
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+env:
+  GIST_ID: 0ef94616a74c387a9626f71245f9533c
+
+jobs:
+  benchmark:
+    name: Run Benchmarks
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Build release
+        run: cargo build --release
+
+      - name: Install wrk
+        run: sudo apt-get update && sudo apt-get install -y wrk
+
+      - name: Seed Redis with test data
+        run: |
+          # Install redis-cli
+          sudo apt-get install -y redis-tools
+
+          # Create test metrics in Redis
+          redis-cli SADD "PROMETHEUS_counter_METRIC_KEYS" "PROMETHEUS_http_requests_total"
+          redis-cli HSET "PROMETHEUS_http_requests_total" "__meta" '{"name":"http_requests_total","help":"Total HTTP requests","type":"counter","labelNames":["method","status"]}'
+          redis-cli HSET "PROMETHEUS_http_requests_total" "W10=" "42"
+
+      - name: Create test config
+        run: |
+          cat > /tmp/config.yaml << 'EOF'
+          server:
+            port: 9090
+          sources:
+            - name: test
+              type: promphp-redis
+              redis_url: redis://127.0.0.1:6379
+              cache_ttl_seconds: 5
+          EOF
+
+      - name: Run server (cached)
+        run: |
+          CONFIG_FILE=/tmp/config.yaml ./target/release/metrics-bridge &
+          sleep 2
+
+      - name: Benchmark with cache
+        id: bench_cached
+        run: |
+          # Warmup
+          curl -s http://localhost:9090/metrics > /dev/null
+          sleep 1
+
+          # Benchmark
+          RESULT=$(wrk -t2 -c10 -d10s http://localhost:9090/metrics 2>&1)
+          echo "$RESULT"
+
+          # Extract RPS
+          RPS=$(echo "$RESULT" | grep "Requests/sec" | awk '{print int($2)}')
+          echo "rps=$RPS" >> $GITHUB_OUTPUT
+
+          # Extract latency
+          LATENCY=$(echo "$RESULT" | grep "Latency" | awk '{print $2}')
+          echo "latency=$LATENCY" >> $GITHUB_OUTPUT
+
+      - name: Stop server
+        run: pkill metrics-bridge || true
+
+      - name: Create config without cache
+        run: |
+          cat > /tmp/config-nocache.yaml << 'EOF'
+          server:
+            port: 9090
+          sources:
+            - name: test
+              type: promphp-redis
+              redis_url: redis://127.0.0.1:6379
+              cache_ttl_seconds: 0
+          EOF
+
+      - name: Run server (no cache)
+        run: |
+          CONFIG_FILE=/tmp/config-nocache.yaml ./target/release/metrics-bridge &
+          sleep 2
+
+      - name: Benchmark without cache
+        id: bench_uncached
+        run: |
+          # Benchmark
+          RESULT=$(wrk -t2 -c10 -d10s http://localhost:9090/metrics 2>&1)
+          echo "$RESULT"
+
+          # Extract RPS
+          RPS=$(echo "$RESULT" | grep "Requests/sec" | awk '{print int($2)}')
+          echo "rps=$RPS" >> $GITHUB_OUTPUT
+
+          # Extract latency
+          LATENCY=$(echo "$RESULT" | grep "Latency" | awk '{print $2}')
+          echo "latency=$LATENCY" >> $GITHUB_OUTPUT
+
+      - name: Update Gist
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ secrets.GIST_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "GIST_TOKEN not set, skipping gist update"
+            exit 0
+          fi
+
+          RPS_CACHED=${{ steps.bench_cached.outputs.rps }}
+          LATENCY_CACHED=${{ steps.bench_cached.outputs.latency }}
+          RPS_UNCACHED=${{ steps.bench_uncached.outputs.rps }}
+          LATENCY_UNCACHED=${{ steps.bench_uncached.outputs.latency }}
+
+          # Determine colors based on values
+          if [ "$RPS_CACHED" -gt 10000 ]; then
+            RPS_CACHED_COLOR="brightgreen"
+          elif [ "$RPS_CACHED" -gt 5000 ]; then
+            RPS_CACHED_COLOR="green"
+          else
+            RPS_CACHED_COLOR="yellow"
+          fi
+
+          # Create JSON files
+          mkdir -p /tmp/gist
+          echo "{\"schemaVersion\":1,\"label\":\"RPS\",\"message\":\"${RPS_CACHED}\",\"color\":\"${RPS_CACHED_COLOR}\"}" > /tmp/gist/rps-cached.json
+          echo "{\"schemaVersion\":1,\"label\":\"RPS\",\"message\":\"${RPS_UNCACHED}\",\"color\":\"yellow\"}" > /tmp/gist/rps-uncached.json
+          echo "{\"schemaVersion\":1,\"label\":\"Latency\",\"message\":\"${LATENCY_CACHED}\",\"color\":\"brightgreen\"}" > /tmp/gist/latency-cached.json
+          echo "{\"schemaVersion\":1,\"label\":\"Latency\",\"message\":\"${LATENCY_UNCACHED}\",\"color\":\"yellow\"}" > /tmp/gist/latency-uncached.json
+
+          # Update gist
+          cd /tmp/gist
+          for f in *.json; do
+            gh gist edit ${{ env.GIST_ID }} -f "$f" < "$f" || gh gist edit ${{ env.GIST_ID }} -a "$f"
+          done
+
+      - name: Summary
+        run: |
+          echo "## Performance Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | With Cache | Without Cache |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|------------|---------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| RPS | ${{ steps.bench_cached.outputs.rps }} | ${{ steps.bench_uncached.outputs.rps }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Latency | ${{ steps.bench_cached.outputs.latency }} | ${{ steps.bench_uncached.outputs.latency }} |" >> $GITHUB_STEP_SUMMARY
