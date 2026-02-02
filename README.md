@@ -111,6 +111,7 @@ sources:
 | `allowed_ips` | `[]` | IP whitelist (CIDR notation), empty = allow all |
 | `tls.cert` | - | Path to TLS certificate |
 | `tls.key` | - | Path to TLS private key |
+| `cache_ttl_seconds` | - | Optional metrics cache TTL in seconds |
 
 #### Sources
 
@@ -197,7 +198,26 @@ docker compose -f docker-compose.test.yml up --build
 
 ## Performance
 
-Benchmark results from CI environment (actual performance will be better):
+### With Caching Enabled (Recommended)
+
+Set `cache_ttl_seconds` to enable metrics caching (e.g., 5 seconds):
+
+| Metric | Value |
+|--------|-------|
+| Avg Latency | **0.8ms** |
+| P99 Latency | 7.7ms |
+| Throughput | **12,500+ req/s** |
+
+### Without Caching
+
+Direct Redis fetch on every request:
+
+| Metric | Value |
+|--------|-------|
+| Avg Latency | ~19ms |
+| Throughput | ~50 req/s |
+
+### CI E2E Results (no cache)
 
 | Store | Avg Latency | Throughput |
 |-------|-------------|------------|
@@ -207,8 +227,8 @@ Benchmark results from CI environment (actual performance will be better):
 | Valkey | ~6ms | ~166 req/s |
 | KeyDB | ~6ms | ~164 req/s |
 
-> **Note**: These numbers are from GitHub Actions runners with small test datasets.
-> In production with optimized hardware, expect sub-millisecond latencies and 1000+ req/s.
+> **Recommendation**: Enable caching with `cache_ttl_seconds: 5` for production use.
+> Prometheus default scrape interval is 15s, so 5s cache is safe.
 
 ## License
 

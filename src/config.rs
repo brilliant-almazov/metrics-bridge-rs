@@ -93,6 +93,9 @@ pub struct ServerConfig {
     /// Optional cache TTL in seconds. If set, metrics are cached for this duration.
     #[serde(default)]
     pub cache_ttl_seconds: Option<u64>,
+    /// Optional GZIP compression level (1-9). If set, responses are compressed.
+    #[serde(default)]
+    pub gzip_level: Option<u32>,
 }
 
 fn default_port() -> u16 {
@@ -107,6 +110,7 @@ impl Default for ServerConfig {
             allowed_ips: Vec::new(),
             tls: TlsConfig::default(),
             cache_ttl_seconds: None,
+            gzip_level: None,
         }
     }
 }

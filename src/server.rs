@@ -25,6 +25,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
+use tower_http::compression::CompressionLayer;
 use tracing::info;
 
 #[cfg(test)]
@@ -58,8 +59,8 @@ impl AppState {
 pub async fn start_server(state: Arc<AppState>) {
     let config = &state.config;
 
-    // Build router
-    let app = Router::new()
+    // Build base router
+    let base_router = Router::new()
         .route("/metrics", get(metrics_handler))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -69,18 +70,35 @@ pub async fn start_server(state: Arc<AppState>) {
         .route("/ready", get(ready_handler))
         .with_state(state.clone());
 
+    // Add compression layer if configured
+    let app = if config.server.gzip_level.is_some() {
+        let level = config.server.gzip_level.unwrap();
+        let quality = match level {
+            1..=3 => tower_http::CompressionLevel::Fastest,
+            4..=6 => tower_http::CompressionLevel::Default,
+            7..=9 => tower_http::CompressionLevel::Best,
+            _ => tower_http::CompressionLevel::Default,
+        };
+        let compression = CompressionLayer::new().gzip(true).quality(quality);
+        info!("GZIP compression enabled (level {})", level);
+        base_router.layer(compression)
+    } else {
+        base_router.layer(tower::layer::util::Identity::new())
+    };
+
     let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
     let listener = TcpListener::bind(addr).await.unwrap();
 
     info!("Server listening on http://{}", addr);
     info!(
-        "Auth: {}, Allowed IPs: {}",
+        "Auth: {}, Allowed IPs: {}, Cache: {}",
         config.server.auth.auth_type,
         if config.allowed_networks.is_empty() {
             "all".to_string()
         } else {
             format!("{:?}", config.server.allowed_ips)
-        }
+        },
+        config.server.cache_ttl_seconds.map_or("disabled".to_string(), |t| format!("{}s", t))
     );
 
     axum::serve(
