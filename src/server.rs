@@ -98,7 +98,10 @@ pub async fn start_server(state: Arc<AppState>) {
         } else {
             format!("{:?}", config.server.allowed_ips)
         },
-        config.server.cache_ttl_seconds.map_or("disabled".to_string(), |t| format!("{}s", t))
+        config
+            .server
+            .cache_ttl_seconds
+            .map_or("disabled".to_string(), |t| format!("{}s", t))
     );
 
     axum::serve(
@@ -239,15 +242,18 @@ async fn metrics_handler(State(state): State<Arc<AppState>>) -> impl IntoRespons
     let success = errors.is_empty();
     self_metrics::record_request(success);
 
-    // Render collected metrics
-    let mut output = render_metrics(&families);
+    // Update process metrics before gathering
+    self_metrics::update_process_metrics();
 
-    // Append self-metrics from prometheus crate
+    // Render self-metrics first (from prometheus crate)
     let encoder = TextEncoder::new();
     let metric_families = prometheus::gather();
     let mut buffer = Vec::new();
     encoder.encode(&metric_families, &mut buffer).unwrap();
-    output.push_str(&String::from_utf8_lossy(&buffer));
+    let mut output = String::from_utf8_lossy(&buffer).to_string();
+
+    // Then append collected metrics from sources
+    output.push_str(&render_metrics(&families));
 
     // Update cache if enabled
     if state.config.server.cache_ttl_seconds.is_some() {

@@ -5,6 +5,10 @@ use prometheus::{
     register_counter_vec, register_gauge, register_gauge_vec, register_histogram_vec, CounterVec,
     Gauge, GaugeVec, HistogramVec,
 };
+use std::time::Instant;
+
+/// Start time for uptime calculation.
+static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
 
 /// Total number of scrape requests.
 pub static SCRAPE_REQUESTS_TOTAL: Lazy<CounterVec> = Lazy::new(|| {
@@ -72,9 +76,34 @@ pub static BUILD_INFO: Lazy<GaugeVec> = Lazy::new(|| {
     .expect("Failed to register build_info")
 });
 
+/// Process uptime in seconds.
+pub static UPTIME_SECONDS: Lazy<Gauge> = Lazy::new(|| {
+    register_gauge!("metrics_bridge_uptime_seconds", "Process uptime in seconds")
+        .expect("Failed to register uptime_seconds")
+});
+
+/// Process resident memory in bytes.
+pub static PROCESS_RESIDENT_MEMORY_BYTES: Lazy<Gauge> = Lazy::new(|| {
+    register_gauge!(
+        "metrics_bridge_process_resident_memory_bytes",
+        "Resident memory size in bytes"
+    )
+    .expect("Failed to register process_resident_memory_bytes")
+});
+
+/// Process virtual memory in bytes.
+pub static PROCESS_VIRTUAL_MEMORY_BYTES: Lazy<Gauge> = Lazy::new(|| {
+    register_gauge!(
+        "metrics_bridge_process_virtual_memory_bytes",
+        "Virtual memory size in bytes"
+    )
+    .expect("Failed to register process_virtual_memory_bytes")
+});
+
 /// Initialize all metrics.
 pub fn init(sources_count: usize) {
     // Touch lazy statics to register them
+    Lazy::force(&START_TIME);
     Lazy::force(&SCRAPE_REQUESTS_TOTAL);
     Lazy::force(&SCRAPE_DURATION_SECONDS);
     Lazy::force(&SCRAPE_ERRORS_TOTAL);
@@ -82,6 +111,9 @@ pub fn init(sources_count: usize) {
     Lazy::force(&SOURCE_UP);
     Lazy::force(&UP);
     Lazy::force(&BUILD_INFO);
+    Lazy::force(&UPTIME_SECONDS);
+    Lazy::force(&PROCESS_RESIDENT_MEMORY_BYTES);
+    Lazy::force(&PROCESS_VIRTUAL_MEMORY_BYTES);
 
     // Set static values
     SOURCES_TOTAL.set(sources_count as f64);
@@ -89,6 +121,42 @@ pub fn init(sources_count: usize) {
     BUILD_INFO
         .with_label_values(&[env!("CARGO_PKG_VERSION"), env!("CARGO_PKG_RUST_VERSION")])
         .set(1.0);
+}
+
+/// Update dynamic process metrics (call before each scrape).
+pub fn update_process_metrics() {
+    // Update uptime
+    UPTIME_SECONDS.set(START_TIME.elapsed().as_secs_f64());
+
+    // Update memory stats (platform-specific)
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+            for line in status.lines() {
+                if line.starts_with("VmRSS:") {
+                    if let Some(kb) = line.split_whitespace().nth(1) {
+                        if let Ok(kb_val) = kb.parse::<f64>() {
+                            PROCESS_RESIDENT_MEMORY_BYTES.set(kb_val * 1024.0);
+                        }
+                    }
+                } else if line.starts_with("VmSize:") {
+                    if let Some(kb) = line.split_whitespace().nth(1) {
+                        if let Ok(kb_val) = kb.parse::<f64>() {
+                            PROCESS_VIRTUAL_MEMORY_BYTES.set(kb_val * 1024.0);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        // macOS: use mach APIs or just report 0 for now
+        // This is a simplified version
+        PROCESS_RESIDENT_MEMORY_BYTES.set(0.0);
+        PROCESS_VIRTUAL_MEMORY_BYTES.set(0.0);
+    }
 }
 
 /// Record a successful scrape.
