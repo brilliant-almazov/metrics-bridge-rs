@@ -646,20 +646,34 @@ async fn test_metrics_handler_empty_registry() {
 }
 
 // Integration tests using tower::ServiceExt
-use axum::routing::get;
-use axum::Router;
 use tower::ServiceExt;
 
-fn create_test_app(state: Arc<AppState>) -> Router {
-    Router::new()
-        .route("/metrics", get(metrics_handler))
-        .route("/health", get(health_handler))
-        .route("/ready", get(ready_handler))
-        .with_state(state)
+#[test]
+fn test_gzip_level_to_quality() {
+    use tower_http::CompressionLevel;
+
+    // Fastest (1-3)
+    assert!(matches!(gzip_level_to_quality(1), CompressionLevel::Fastest));
+    assert!(matches!(gzip_level_to_quality(2), CompressionLevel::Fastest));
+    assert!(matches!(gzip_level_to_quality(3), CompressionLevel::Fastest));
+
+    // Default (4-6)
+    assert!(matches!(gzip_level_to_quality(4), CompressionLevel::Default));
+    assert!(matches!(gzip_level_to_quality(5), CompressionLevel::Default));
+    assert!(matches!(gzip_level_to_quality(6), CompressionLevel::Default));
+
+    // Best (7-9)
+    assert!(matches!(gzip_level_to_quality(7), CompressionLevel::Best));
+    assert!(matches!(gzip_level_to_quality(8), CompressionLevel::Best));
+    assert!(matches!(gzip_level_to_quality(9), CompressionLevel::Best));
+
+    // Out of range defaults to Default
+    assert!(matches!(gzip_level_to_quality(0), CompressionLevel::Default));
+    assert!(matches!(gzip_level_to_quality(10), CompressionLevel::Default));
 }
 
 #[tokio::test]
-async fn test_router_health_endpoint() {
+async fn test_build_router_health_endpoint() {
     use crate::source::SourceRegistry;
 
     let state = Arc::new(AppState {
@@ -672,7 +686,7 @@ async fn test_router_health_endpoint() {
         cache: MetricsCache::new(0),
     });
 
-    let app = create_test_app(state);
+    let app = build_router(state);
 
     let response = app
         .oneshot(
@@ -688,8 +702,9 @@ async fn test_router_health_endpoint() {
 }
 
 #[tokio::test]
-async fn test_router_metrics_endpoint() {
+async fn test_build_router_metrics_endpoint() {
     use crate::source::SourceRegistry;
+    use axum::extract::ConnectInfo;
 
     let sources: Vec<Arc<dyn Source>> = vec![Arc::new(MockSource::new("test"))];
     let state = Arc::new(AppState {
@@ -702,23 +717,23 @@ async fn test_router_metrics_endpoint() {
         cache: MetricsCache::new(0),
     });
 
-    let app = create_test_app(state);
+    let app = build_router(state);
 
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/metrics")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
+    let mut request = Request::builder()
+        .uri("/metrics")
+        .body(Body::empty())
         .unwrap();
+    request
+        .extensions_mut()
+        .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 12345))));
+
+    let response = app.oneshot(request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
 }
 
 #[tokio::test]
-async fn test_router_ready_endpoint_healthy() {
+async fn test_build_router_ready_endpoint_healthy() {
     use crate::source::SourceRegistry;
 
     let sources: Vec<Arc<dyn Source>> = vec![Arc::new(MockSource::new("healthy"))];
@@ -732,7 +747,7 @@ async fn test_router_ready_endpoint_healthy() {
         cache: MetricsCache::new(0),
     });
 
-    let app = create_test_app(state);
+    let app = build_router(state);
 
     let response = app
         .oneshot(
@@ -748,7 +763,7 @@ async fn test_router_ready_endpoint_healthy() {
 }
 
 #[tokio::test]
-async fn test_router_ready_endpoint_unhealthy() {
+async fn test_build_router_ready_endpoint_unhealthy() {
     use crate::source::SourceRegistry;
 
     let sources: Vec<Arc<dyn Source>> = vec![Arc::new(MockSource::failing("unhealthy"))];
@@ -762,7 +777,7 @@ async fn test_router_ready_endpoint_unhealthy() {
         cache: MetricsCache::new(0),
     });
 
-    let app = create_test_app(state);
+    let app = build_router(state);
 
     let response = app
         .oneshot(
