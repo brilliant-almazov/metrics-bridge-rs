@@ -68,15 +68,24 @@ pub fn parse_promphp_metric(
 
     let mut metric = Metric::new(&meta.name, &meta.help, metric_type);
 
-    // Parse each sample (skip __meta)
-    for (key, value) in hash_data.iter() {
-        if key == "__meta" {
-            continue;
-        }
-
-        let samples = parse_sample(key, value, &meta, label_format)?;
+    if metric_type == MetricType::Histogram {
+        // Histogram uses different field format in promphp:
+        // each bucket is a separate hash field with JSON-object key
+        let samples = parse_histogram_fields(&hash_data, &meta)?;
         for sample in samples {
             metric.add_sample(sample);
+        }
+    } else {
+        // Counter/Gauge/Summary - each field has label values as key
+        for (key, value) in hash_data.iter() {
+            if key == "__meta" {
+                continue;
+            }
+
+            let samples = parse_sample(key, value, &meta, label_format)?;
+            for sample in samples {
+                metric.add_sample(sample);
+            }
         }
     }
 
@@ -110,16 +119,10 @@ fn parse_sample(
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
 
-    match meta.metric_type.to_lowercase().as_str() {
-        "histogram" => parse_histogram_sample(value, labels, &meta.buckets),
-        _ => {
-            // Counter/Gauge - simple value
-            let val: f64 = value
-                .parse()
-                .map_err(|_| ParseError::InvalidValue(value.to_string()))?;
-            Ok(vec![Sample::new(labels, val)])
-        }
-    }
+    let val: f64 = value
+        .parse()
+        .map_err(|_| ParseError::InvalidValue(value.to_string()))?;
+    Ok(vec![Sample::new(labels, val)])
 }
 
 fn decode_label_values(key: &str, format: LabelFormat) -> Result<Vec<String>, ParseError> {
@@ -175,51 +178,110 @@ fn decode_base64_labels(key: &str) -> Result<Vec<String>, ParseError> {
         .collect())
 }
 
-/// Parse histogram sample value (JSON object with bucket counts, sum, count).
-fn parse_histogram_sample(
-    value: &str,
-    base_labels: HashMap<String, String>,
-    buckets: &[f64],
+/// Key format for histogram hash fields in promphp.
+///
+/// Each bucket is stored as a separate Redis hash field with a JSON-object key:
+/// `{"b":2.5,"labelValues":["GET","route","/path",200]}`
+///
+/// `b` is a number for bucket bounds, or a string for "sum"/"+Inf".
+#[derive(Debug, Deserialize)]
+struct HistogramFieldKey {
+    b: serde_json::Value,
+    #[serde(rename = "labelValues")]
+    label_values: Vec<serde_json::Value>,
+}
+
+/// Parse histogram fields from promphp Redis format.
+///
+/// Each hash field (except `__meta`) has a JSON-object key with bucket bound
+/// and label values. Values are plain numbers (non-cumulative bucket counts).
+fn parse_histogram_fields(
+    hash_data: &HashMap<String, String>,
+    meta: &MetricMeta,
 ) -> Result<Vec<Sample>, ParseError> {
-    // promphp histogram value format:
-    // {"sum": 123.45, "count": 100, "buckets": {"0.005": 10, "0.01": 20, ...}}
-    let hist_data: HistogramValue =
-        serde_json::from_str(value).map_err(|e| ParseError::InvalidValue(e.to_string()))?;
+    // Group entries by label_values
+    // Key: serialized label_values, Value: (converted label strings, bucket data)
+    let mut groups: HashMap<String, (Vec<String>, HashMap<String, f64>)> = HashMap::new();
+
+    for (key, value) in hash_data.iter() {
+        if key == "__meta" {
+            continue;
+        }
+
+        let field_key: HistogramFieldKey =
+            serde_json::from_str(key).map_err(|e| ParseError::InvalidLabelJson(e.to_string()))?;
+
+        let val: f64 = value
+            .parse()
+            .map_err(|_| ParseError::InvalidValue(value.to_string()))?;
+
+        let group_key = serde_json::to_string(&field_key.label_values)
+            .map_err(|e| ParseError::InvalidLabelJson(e.to_string()))?;
+
+        let bucket_key = match &field_key.b {
+            serde_json::Value::Number(n) => n.to_string(),
+            serde_json::Value::String(s) => s.clone(),
+            other => other.to_string(),
+        };
+
+        let entry = groups.entry(group_key).or_insert_with(|| {
+            let label_strs: Vec<String> = field_key
+                .label_values
+                .iter()
+                .map(|v| match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    serde_json::Value::Number(n) => n.to_string(),
+                    serde_json::Value::Bool(b) => b.to_string(),
+                    serde_json::Value::Null => "".to_string(),
+                    other => other.to_string(),
+                })
+                .collect();
+            (label_strs, HashMap::new())
+        });
+
+        entry.1.insert(bucket_key, val);
+    }
 
     let mut samples = Vec::new();
 
-    // _sum sample
-    samples.push(Sample::new(base_labels.clone(), hist_data.sum).with_suffix("_sum"));
+    for (_group_key, (label_values, bucket_data)) in &groups {
+        // Build base labels from meta.label_names + label_values
+        let base_labels: HashMap<String, String> = meta
+            .label_names
+            .iter()
+            .zip(label_values.iter())
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
 
-    // _count sample
-    samples.push(Sample::new(base_labels.clone(), hist_data.count as f64).with_suffix("_count"));
+        let sum_val = bucket_data.get("sum").copied().unwrap_or(0.0);
+        let inf_count = bucket_data.get("+Inf").copied().unwrap_or(0.0);
 
-    // _bucket samples
-    let mut cumulative = 0u64;
-    for bucket_bound in buckets {
-        let bucket_key = format_bucket_key(*bucket_bound);
-        let bucket_count = hist_data.buckets.get(&bucket_key).copied().unwrap_or(0);
-        cumulative += bucket_count;
+        // Generate _bucket samples with cumulative counts
+        let mut cumulative = 0.0;
+        for bucket_bound in &meta.buckets {
+            let bucket_key = format_bucket_key(*bucket_bound);
+            let bucket_count = bucket_data.get(&bucket_key).copied().unwrap_or(0.0);
+            cumulative += bucket_count;
 
-        let mut bucket_labels = base_labels.clone();
-        bucket_labels.insert("le".to_string(), format_le(*bucket_bound));
-        samples.push(Sample::new(bucket_labels, cumulative as f64).with_suffix("_bucket"));
+            let mut bucket_labels = base_labels.clone();
+            bucket_labels.insert("le".to_string(), format_le(*bucket_bound));
+            samples.push(Sample::new(bucket_labels, cumulative).with_suffix("_bucket"));
+        }
+
+        // +Inf bucket (cumulative + observations beyond max bucket)
+        let total_count = cumulative + inf_count;
+        let mut inf_labels = base_labels.clone();
+        inf_labels.insert("le".to_string(), "+Inf".to_string());
+        samples.push(Sample::new(inf_labels, total_count).with_suffix("_bucket"));
+
+        // _sum sample
+        samples.push(Sample::new(base_labels.clone(), sum_val).with_suffix("_sum"));
+
+        // _count sample (= total observations = +Inf bucket value)
+        samples.push(Sample::new(base_labels.clone(), total_count).with_suffix("_count"));
     }
 
-    // +Inf bucket
-    let mut inf_labels = base_labels.clone();
-    inf_labels.insert("le".to_string(), "+Inf".to_string());
-    samples.push(Sample::new(inf_labels, hist_data.count as f64).with_suffix("_bucket"));
-
     Ok(samples)
-}
-
-#[derive(Debug, Deserialize)]
-struct HistogramValue {
-    sum: f64,
-    count: u64,
-    #[serde(default)]
-    buckets: HashMap<String, u64>,
 }
 
 fn format_bucket_key(bound: f64) -> String {

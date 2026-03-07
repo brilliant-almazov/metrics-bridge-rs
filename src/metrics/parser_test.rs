@@ -73,36 +73,74 @@ fn test_parse_histogram() {
     let mut hash_data = HashMap::new();
     hash_data.insert(
         "__meta".to_string(),
-        r#"{"name":"request_duration","help":"Duration","type":"histogram","labelNames":["endpoint"],"buckets":[0.01,0.05,0.1]}"#.to_string(),
+        r#"{"name":"request_duration","help":"Duration","type":"histogram","labelNames":["method"],"buckets":[0.01,0.1,1]}"#.to_string(),
     );
-    let label_key = STANDARD.encode(r#"["/api"]"#);
+    // promphp stores each bucket as a separate hash field with JSON-object key
     hash_data.insert(
-        label_key,
-        r#"{"sum":1.5,"count":100,"buckets":{"0.01":10,"0.05":50,"0.1":90}}"#.to_string(),
+        r#"{"b":0.01,"labelValues":["GET"]}"#.to_string(),
+        "2".to_string(),
+    );
+    hash_data.insert(
+        r#"{"b":0.1,"labelValues":["GET"]}"#.to_string(),
+        "5".to_string(),
+    );
+    hash_data.insert(
+        r#"{"b":1,"labelValues":["GET"]}"#.to_string(),
+        "3".to_string(),
+    );
+    hash_data.insert(
+        r#"{"b":"+Inf","labelValues":["GET"]}"#.to_string(),
+        "0".to_string(),
+    );
+    hash_data.insert(
+        r#"{"b":"sum","labelValues":["GET"]}"#.to_string(),
+        "7.42".to_string(),
     );
 
     let metric = parse_promphp_metric(hash_data, LabelFormat::Auto).unwrap();
     assert_eq!(metric.name, "request_duration");
     assert_eq!(metric.metric_type, MetricType::Histogram);
 
-    // Should have: 3 buckets + 1 +Inf + sum + count = 6 samples
+    // 3 buckets + 1 +Inf + sum + count = 6 samples
     assert_eq!(metric.samples.len(), 6);
 
-    // Check sum sample
+    // Check cumulative bucket values
+    let buckets: Vec<_> = metric
+        .samples
+        .iter()
+        .filter(|s| s.suffix.as_deref() == Some("_bucket"))
+        .collect();
+    assert_eq!(buckets.len(), 4);
+
+    let find_bucket = |le: &str| -> f64 {
+        buckets
+            .iter()
+            .find(|s| s.labels.get("le").map(|v| v.as_str()) == Some(le))
+            .unwrap()
+            .value
+    };
+    // Non-cumulative: 2, 5, 3 → cumulative: 2, 7, 10
+    assert_eq!(find_bucket("0.01"), 2.0);
+    assert_eq!(find_bucket("0.1"), 7.0);
+    assert_eq!(find_bucket("1"), 10.0);
+    assert_eq!(find_bucket("+Inf"), 10.0);
+
+    // Check sum
     let sum_sample = metric
         .samples
         .iter()
         .find(|s| s.suffix.as_deref() == Some("_sum"))
         .unwrap();
-    assert_eq!(sum_sample.value, 1.5);
+    assert_eq!(sum_sample.value, 7.42);
+    assert_eq!(sum_sample.labels.get("method").unwrap(), "GET");
 
-    // Check count sample
+    // Check count (= +Inf bucket value)
     let count_sample = metric
         .samples
         .iter()
         .find(|s| s.suffix.as_deref() == Some("_count"))
         .unwrap();
-    assert_eq!(count_sample.value, 100.0);
+    assert_eq!(count_sample.value, 10.0);
 }
 
 #[test]
@@ -238,17 +276,175 @@ fn test_histogram_missing_bucket() {
         "__meta".to_string(),
         r#"{"name":"hist","help":"Histogram","type":"histogram","labelNames":[],"buckets":[0.1,0.5,1.0]}"#.to_string(),
     );
-    let label_key = STANDARD.encode("[]");
     // Only some buckets present - missing 0.5
     hash_data.insert(
-        label_key,
-        r#"{"sum":10.0,"count":50,"buckets":{"0.1":10,"1":40}}"#.to_string(),
+        r#"{"b":0.1,"labelValues":[]}"#.to_string(),
+        "10".to_string(),
+    );
+    hash_data.insert(
+        r#"{"b":1,"labelValues":[]}"#.to_string(),
+        "40".to_string(),
+    );
+    hash_data.insert(
+        r#"{"b":"+Inf","labelValues":[]}"#.to_string(),
+        "0".to_string(),
+    );
+    hash_data.insert(
+        r#"{"b":"sum","labelValues":[]}"#.to_string(),
+        "10.0".to_string(),
     );
 
     let metric = parse_promphp_metric(hash_data, LabelFormat::Auto).unwrap();
 
-    // Should still work, missing bucket defaults to 0
-    assert_eq!(metric.samples.len(), 6); // 3 buckets + inf + sum + count
+    // 3 buckets + inf + sum + count = 6 samples
+    assert_eq!(metric.samples.len(), 6);
+
+    // Missing 0.5 bucket defaults to 0, cumulative: 10, 10, 50
+    let buckets: Vec<_> = metric
+        .samples
+        .iter()
+        .filter(|s| s.suffix.as_deref() == Some("_bucket"))
+        .collect();
+    let find_bucket = |le: &str| -> f64 {
+        buckets
+            .iter()
+            .find(|s| s.labels.get("le").map(|v| v.as_str()) == Some(le))
+            .unwrap()
+            .value
+    };
+    assert_eq!(find_bucket("0.1"), 10.0);
+    assert_eq!(find_bucket("0.5"), 10.0); // missing bucket, cumulative stays same
+    assert_eq!(find_bucket("1"), 50.0);
+    assert_eq!(find_bucket("+Inf"), 50.0);
+}
+
+#[test]
+fn test_histogram_with_inf_observations() {
+    let mut hash_data = HashMap::new();
+    hash_data.insert(
+        "__meta".to_string(),
+        r#"{"name":"latency","help":"Latency","type":"histogram","labelNames":["op"],"buckets":[0.5,1.0]}"#.to_string(),
+    );
+    hash_data.insert(
+        r#"{"b":0.5,"labelValues":["read"]}"#.to_string(),
+        "5".to_string(),
+    );
+    hash_data.insert(
+        r#"{"b":1,"labelValues":["read"]}"#.to_string(),
+        "3".to_string(),
+    );
+    hash_data.insert(
+        r#"{"b":"+Inf","labelValues":["read"]}"#.to_string(),
+        "2".to_string(), // 2 observations beyond max bucket
+    );
+    hash_data.insert(
+        r#"{"b":"sum","labelValues":["read"]}"#.to_string(),
+        "15.5".to_string(),
+    );
+
+    let metric = parse_promphp_metric(hash_data, LabelFormat::Auto).unwrap();
+    let buckets: Vec<_> = metric
+        .samples
+        .iter()
+        .filter(|s| s.suffix.as_deref() == Some("_bucket"))
+        .collect();
+    let find_bucket = |le: &str| -> f64 {
+        buckets
+            .iter()
+            .find(|s| s.labels.get("le").map(|v| v.as_str()) == Some(le))
+            .unwrap()
+            .value
+    };
+    // cumulative: 5, 8, then +Inf = 8 + 2 = 10
+    assert_eq!(find_bucket("0.5"), 5.0);
+    assert_eq!(find_bucket("1"), 8.0);
+    assert_eq!(find_bucket("+Inf"), 10.0);
+
+    let count = metric
+        .samples
+        .iter()
+        .find(|s| s.suffix.as_deref() == Some("_count"))
+        .unwrap();
+    assert_eq!(count.value, 10.0);
+
+    let sum = metric
+        .samples
+        .iter()
+        .find(|s| s.suffix.as_deref() == Some("_sum"))
+        .unwrap();
+    assert_eq!(sum.value, 15.5);
+}
+
+#[test]
+fn test_histogram_multiple_label_sets() {
+    let mut hash_data = HashMap::new();
+    hash_data.insert(
+        "__meta".to_string(),
+        r#"{"name":"duration","help":"Duration","type":"histogram","labelNames":["method","status"],"buckets":[0.1,1.0]}"#.to_string(),
+    );
+    // Group 1: GET 200
+    hash_data.insert(
+        r#"{"b":0.1,"labelValues":["GET",200]}"#.to_string(),
+        "10".to_string(),
+    );
+    hash_data.insert(
+        r#"{"b":1,"labelValues":["GET",200]}"#.to_string(),
+        "5".to_string(),
+    );
+    hash_data.insert(
+        r#"{"b":"+Inf","labelValues":["GET",200]}"#.to_string(),
+        "0".to_string(),
+    );
+    hash_data.insert(
+        r#"{"b":"sum","labelValues":["GET",200]}"#.to_string(),
+        "3.5".to_string(),
+    );
+    // Group 2: POST 500
+    hash_data.insert(
+        r#"{"b":0.1,"labelValues":["POST",500]}"#.to_string(),
+        "1".to_string(),
+    );
+    hash_data.insert(
+        r#"{"b":1,"labelValues":["POST",500]}"#.to_string(),
+        "2".to_string(),
+    );
+    hash_data.insert(
+        r#"{"b":"+Inf","labelValues":["POST",500]}"#.to_string(),
+        "1".to_string(),
+    );
+    hash_data.insert(
+        r#"{"b":"sum","labelValues":["POST",500]}"#.to_string(),
+        "5.0".to_string(),
+    );
+
+    let metric = parse_promphp_metric(hash_data, LabelFormat::Auto).unwrap();
+
+    // 2 groups * (2 buckets + inf + sum + count) = 2 * 5 = 10 samples
+    assert_eq!(metric.samples.len(), 10);
+
+    // Check GET 200 group
+    let get_count = metric
+        .samples
+        .iter()
+        .find(|s| {
+            s.suffix.as_deref() == Some("_count")
+                && s.labels.get("method").map(|v| v.as_str()) == Some("GET")
+        })
+        .unwrap();
+    assert_eq!(get_count.value, 15.0); // 10 + 5 + 0
+    assert_eq!(get_count.labels.get("status").unwrap(), "200");
+
+    // Check POST 500 group
+    let post_count = metric
+        .samples
+        .iter()
+        .find(|s| {
+            s.suffix.as_deref() == Some("_count")
+                && s.labels.get("method").map(|v| v.as_str()) == Some("POST")
+        })
+        .unwrap();
+    assert_eq!(post_count.value, 4.0); // 1 + 2 + 1
+    assert_eq!(post_count.labels.get("status").unwrap(), "500");
 }
 
 #[test]
