@@ -281,10 +281,7 @@ fn test_histogram_missing_bucket() {
         r#"{"b":0.1,"labelValues":[]}"#.to_string(),
         "10".to_string(),
     );
-    hash_data.insert(
-        r#"{"b":1,"labelValues":[]}"#.to_string(),
-        "40".to_string(),
-    );
+    hash_data.insert(r#"{"b":1,"labelValues":[]}"#.to_string(), "40".to_string());
     hash_data.insert(
         r#"{"b":"+Inf","labelValues":[]}"#.to_string(),
         "0".to_string(),
