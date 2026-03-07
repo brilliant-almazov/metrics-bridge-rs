@@ -244,7 +244,7 @@ fn parse_histogram_fields(
 
     let mut samples = Vec::new();
 
-    for (_group_key, (label_values, bucket_data)) in &groups {
+    for (label_values, bucket_data) in groups.values() {
         // Build base labels from meta.label_names + label_values
         let base_labels: HashMap<String, String> = meta
             .label_names
