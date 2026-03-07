@@ -148,7 +148,7 @@ impl<C: RedisClient> PromphpRedisSource<C> {
         }
     }
 
-    /// Gets all metric keys for a given type (counter, gauge, histogram).
+    /// Gets all metric keys for a given type (counter, gauge, histogram, summary).
     async fn get_metric_keys(&self, metric_type: &str) -> SourceResult<Vec<String>> {
         let set_key = format!("{}{}_METRIC_KEYS", self.prefix, metric_type);
         self.client.smembers(&set_key).await
@@ -170,7 +170,7 @@ impl<C: RedisClient + 'static> Source for PromphpRedisSource<C> {
         let mut family = MetricFamily::new(&self.name).with_labels(self.extra_labels.clone());
 
         // Collect all metric types
-        for metric_type in &["counter", "gauge", "histogram"] {
+        for metric_type in &["counter", "gauge", "histogram", "summary"] {
             let keys = self.get_metric_keys(metric_type).await?;
 
             debug!(
