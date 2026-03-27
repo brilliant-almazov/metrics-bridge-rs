@@ -214,6 +214,7 @@ async fn metrics_handler(State(state): State<Arc<AppState>>) -> impl IntoRespons
     for family in &families {
         self_metrics::record_scrape_success(&family.source, duration.as_secs_f64());
     }
+
     for (source, _) in &errors {
         self_metrics::record_scrape_error(source);
     }
