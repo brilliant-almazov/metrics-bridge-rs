@@ -88,9 +88,10 @@ impl SourceRegistry {
 
     /// Collects metrics from all sources in parallel with per-source caching.
     ///
-    /// Returns a tuple of (successful families, errors with source names, cache hits).
+    /// Returns a tuple of (successful families, errors with source names).
     /// Each source uses its own cache with individual TTL.
-    pub async fn collect_all(&self) -> (Vec<MetricFamily>, Vec<(String, SourceError)>) {
+    /// Families are returned behind `Arc` to avoid deep cloning.
+    pub async fn collect_all(&self) -> (Vec<Arc<MetricFamily>>, Vec<(String, SourceError)>) {
         let start = Instant::now();
 
         let futures: Vec<_> = self
@@ -111,10 +112,15 @@ impl SourceRegistry {
                     // Cache miss - collect from source
                     let result = source.collect().await;
 
-                    // Store in cache if successful
-                    if let Ok(ref family) = result {
-                        cache.set(family.clone()).await;
-                    }
+                    // Wrap in Arc and store in cache if successful
+                    let result = match result {
+                        Ok(family) => {
+                            let arc_family = Arc::new(family);
+                            cache.set_arc(Arc::clone(&arc_family)).await;
+                            Ok(arc_family)
+                        }
+                        Err(e) => Err(e),
+                    };
 
                     (name, result, false)
                 }

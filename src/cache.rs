@@ -9,9 +9,8 @@ use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
 /// Cached data with timestamp.
-#[derive(Clone)]
 struct CacheEntry<T> {
-    data: T,
+    data: Arc<T>,
     created_at: Instant,
 }
 
@@ -19,12 +18,13 @@ struct CacheEntry<T> {
 ///
 /// When TTL = 0, caching is disabled and `get()` always returns None.
 /// When TTL > 0, data is cached for the specified duration.
+/// Data is stored behind `Arc` to avoid cloning on read.
 pub struct Cache<T> {
     ttl: Duration,
     entry: RwLock<Option<CacheEntry<T>>>,
 }
 
-impl<T: Clone> Cache<T> {
+impl<T> Cache<T> {
     /// Creates a new cache with the given TTL in seconds.
     /// TTL of 0 means caching is disabled.
     pub fn new(ttl_seconds: u64) -> Self {
@@ -45,7 +45,7 @@ impl<T: Clone> Cache<T> {
     }
 
     /// Gets cached data if valid, None otherwise.
-    pub async fn get(&self) -> Option<T> {
+    pub async fn get(&self) -> Option<Arc<T>> {
         if !self.is_enabled() {
             return None;
         }
@@ -53,7 +53,7 @@ impl<T: Clone> Cache<T> {
         let entry = self.entry.read().await;
         entry.as_ref().and_then(|e| {
             if e.created_at.elapsed() < self.ttl {
-                Some(e.data.clone())
+                Some(Arc::clone(&e.data))
             } else {
                 None
             }
@@ -62,6 +62,11 @@ impl<T: Clone> Cache<T> {
 
     /// Stores data in cache. No-op if caching is disabled.
     pub async fn set(&self, data: T) {
+        self.set_arc(Arc::new(data)).await;
+    }
+
+    /// Stores an already-wrapped Arc in cache. No-op if caching is disabled.
+    pub async fn set_arc(&self, data: Arc<T>) {
         if !self.is_enabled() {
             return;
         }

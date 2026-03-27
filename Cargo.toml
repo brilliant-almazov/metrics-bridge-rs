@@ -1,6 +1,6 @@
 [package]
 name = "metrics-bridge"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 description = "High-performance Prometheus metrics exporter for promphp/prometheus_client_php Redis storage. Sub-millisecond latency, 12500+ RPS with caching. Supports Redis, Dragonfly, Valkey, KeyDB. Features: multiple sources aggregation, per-source caching, extra labels, auth (Basic/Bearer/IP whitelist), TLS, GZIP compression. Tiny <10MB Docker image."
 license = "MIT"

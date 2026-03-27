@@ -6,25 +6,26 @@
 use super::types::MetricFamily;
 use std::collections::HashMap;
 use std::fmt::Write;
+use std::sync::Arc;
 
 /// Render metrics to Prometheus text exposition format.
-pub fn render_metrics(families: &[MetricFamily]) -> String {
+pub fn render_metrics(families: &[Arc<MetricFamily>]) -> String {
     let mut output = String::new();
-    let mut seen_metrics: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen_metrics: std::collections::HashSet<&str> = std::collections::HashSet::new();
 
     for family in families {
         for metric in &family.metrics {
             let full_name = &metric.name;
 
             // Only output HELP and TYPE once per metric name
-            if !seen_metrics.contains(full_name) {
+            if !seen_metrics.contains(full_name.as_str()) {
                 // HELP line
                 writeln!(output, "# HELP {} {}", full_name, escape_help(&metric.help)).unwrap();
 
                 // TYPE line
                 writeln!(output, "# TYPE {} {}", full_name, metric.metric_type).unwrap();
 
-                seen_metrics.insert(full_name.clone());
+                seen_metrics.insert(full_name);
             }
 
             // Sample lines
@@ -34,11 +35,7 @@ pub fn render_metrics(families: &[MetricFamily]) -> String {
                     None => full_name.clone(),
                 };
 
-                // Merge extra labels from family
-                let mut all_labels = family.extra_labels.clone();
-                all_labels.extend(sample.labels.clone());
-
-                let labels_str = format_labels(&all_labels);
+                let labels_str = format_merged_labels(&family.extra_labels, &sample.labels);
 
                 if labels_str.is_empty() {
                     writeln!(output, "{} {}", metric_name, format_value(sample.value)).unwrap();
@@ -64,20 +61,37 @@ fn escape_help(help: &str) -> String {
     help.replace('\\', "\\\\").replace('\n', "\\n")
 }
 
-/// Format labels as key="value",key="value".
-fn format_labels(labels: &HashMap<String, String>) -> String {
-    if labels.is_empty() {
+/// Format merged labels from two maps without allocating a combined HashMap.
+/// Sample labels override extra labels on key collision.
+fn format_merged_labels(
+    extra: &HashMap<String, String>,
+    sample: &HashMap<String, String>,
+) -> String {
+    if extra.is_empty() && sample.is_empty() {
         return String::new();
     }
 
-    let mut pairs: Vec<_> = labels
-        .iter()
-        .map(|(k, v)| format!("{}=\"{}\"", k, escape_label_value(v)))
-        .collect();
+    let mut pairs: Vec<(&str, &str)> = Vec::with_capacity(extra.len() + sample.len());
 
-    // Sort for deterministic output
-    pairs.sort();
-    pairs.join(",")
+    for (k, v) in extra {
+        if !sample.contains_key(k) {
+            pairs.push((k, v));
+        }
+    }
+    for (k, v) in sample {
+        pairs.push((k, v));
+    }
+
+    pairs.sort_by_key(|(k, _)| *k);
+
+    let mut result = String::new();
+    for (i, (k, v)) in pairs.iter().enumerate() {
+        if i > 0 {
+            result.push(',');
+        }
+        write!(result, "{}=\"{}\"", k, escape_label_value(v)).unwrap();
+    }
+    result
 }
 
 /// Escape label value for Prometheus format.

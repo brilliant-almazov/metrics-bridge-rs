@@ -43,11 +43,11 @@ fn test_render_simple_counter() {
     labels.insert("method".to_string(), "GET".to_string());
     metric.add_sample(Sample::new(labels, 100.0));
 
-    let family = MetricFamily {
+    let family = Arc::new(MetricFamily {
         source: "test".to_string(),
         extra_labels: HashMap::new(),
         metrics: vec![metric],
-    };
+    });
 
     let output = render_metrics(&[family]);
     assert!(output.contains("# HELP http_requests_total Total HTTP requests"));
@@ -63,11 +63,11 @@ fn test_render_with_extra_labels() {
     let mut extra_labels = HashMap::new();
     extra_labels.insert("app".to_string(), "web".to_string());
 
-    let family = MetricFamily {
+    let family = Arc::new(MetricFamily {
         source: "test".to_string(),
         extra_labels,
         metrics: vec![metric],
-    };
+    });
 
     let output = render_metrics(&[family]);
     assert!(output.contains("test_metric{app=\"web\"} 42"));
@@ -78,11 +78,11 @@ fn test_render_no_labels() {
     let mut metric = Metric::new("simple_gauge", "Simple", MetricType::Gauge);
     metric.add_sample(Sample::new(HashMap::new(), 1.0));
 
-    let family = MetricFamily {
+    let family = Arc::new(MetricFamily {
         source: "test".to_string(),
         extra_labels: HashMap::new(),
         metrics: vec![metric],
-    };
+    });
 
     let output = render_metrics(&[family]);
     assert!(output.contains("simple_gauge 1"));
@@ -96,17 +96,17 @@ fn test_render_multiple_families() {
     let mut metric2 = Metric::new("metric_b", "B", MetricType::Gauge);
     metric2.add_sample(Sample::new(HashMap::new(), 2.0));
 
-    let family1 = MetricFamily {
+    let family1 = Arc::new(MetricFamily {
         source: "source1".to_string(),
         extra_labels: HashMap::new(),
         metrics: vec![metric1],
-    };
+    });
 
-    let family2 = MetricFamily {
+    let family2 = Arc::new(MetricFamily {
         source: "source2".to_string(),
         extra_labels: HashMap::new(),
         metrics: vec![metric2],
-    };
+    });
 
     let output = render_metrics(&[family1, family2]);
     assert!(output.contains("metric_a 1"));
@@ -127,11 +127,11 @@ fn test_render_histogram_with_suffix() {
     bucket_labels.insert("le".to_string(), "0.1".to_string());
     metric.add_sample(Sample::new(bucket_labels, 50.0).with_suffix("_bucket"));
 
-    let family = MetricFamily {
+    let family = Arc::new(MetricFamily {
         source: "test".to_string(),
         extra_labels: HashMap::new(),
         metrics: vec![metric],
-    };
+    });
 
     let output = render_metrics(&[family]);
     assert!(output.contains("request_duration_sum{endpoint=\"/api\"} 1.5"));
@@ -146,6 +146,6 @@ fn test_labels_sorted_deterministically() {
     labels.insert("a".to_string(), "2".to_string());
     labels.insert("m".to_string(), "3".to_string());
 
-    let formatted = format_labels(&labels);
+    let formatted = format_merged_labels(&HashMap::new(), &labels);
     assert_eq!(formatted, "a=\"2\",m=\"3\",z=\"1\"");
 }
